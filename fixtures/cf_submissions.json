@@ -1,0 +1,19 @@
+{
+  "status": "OK",
+  "result": [
+    {
+      "id": 11,
+      "creationTimeSeconds": 1000,
+      "verdict": "WRONG_ANSWER",
+      "programmingLanguage": "GNU C++20",
+      "problem": { "contestId": 100, "index": "A" }
+    },
+    {
+      "id": 12,
+      "creationTimeSeconds": 1100,
+      "verdict": "OK",
+      "programmingLanguage": "GNU C++20",
+      "problem": { "contestId": 100, "index": "A" }
+    }
+  ]
+}

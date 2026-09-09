@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.sqlite3*
+*.log
+.venv/
+node_modules/
+dist/
+build/
+test-results/
+playwright-report/
+*.egg-info/
+data/
+cache/
+backups/

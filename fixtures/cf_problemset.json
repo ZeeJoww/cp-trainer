@@ -1,0 +1,28 @@
+{
+  "status": "OK",
+  "result": {
+    "problems": [
+      {
+        "contestId": 100,
+        "index": "A",
+        "name": "Alpha",
+        "rating": 1800,
+        "points": 500,
+        "tags": ["greedy"]
+      },
+      {
+        "contestId": 100,
+        "index": "B",
+        "name": "Beta",
+        "rating": 2200,
+        "points": 1000,
+        "tags": ["dp", "graphs"]
+      },
+      { "contestId": 101, "index": "C", "name": "Gamma", "tags": ["math"] }
+    ],
+    "problemStatistics": [
+      { "contestId": 100, "index": "A", "solvedCount": 10000 },
+      { "contestId": 100, "index": "B", "solvedCount": 1200 }
+    ]
+  }
+}

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="本地优先的 Codeforces 与 AtCoder 竞赛训练工具。离线读题、自由组题、专注比赛。"
+    />
+    <title>CP Trainer · 竞赛训练</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/vendor/katex/katex.min.css" />
+    <script src="/vendor/katex/katex.min.js" defer></script>
+    <script src="/vendor/katex/auto-render.min.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="#contests" class="brand"
+        ><span class="brand-mark" aria-hidden="true">&gt;_</span> CP Trainer
+        <span class="local-badge">LOCAL</span></a
+      >
+      <nav aria-label="主导航">
+        <a href="#contests" data-nav="contests" aria-current="page">比赛</a>
+        <a href="#bank" data-nav="bank">本地题库</a>
+      </nav>
+      <div class="top-actions">
+        <button id="profile-open" class="quiet">训练分</button
+        ><button id="theme" class="quiet" aria-label="切换至暗色模式">☾ 暗色</button>
+      </div>
+    </header>
+    <main>
+      <div id="notice" role="status" class="notice" hidden></div>
+      <section class="archive-bar" aria-label="题库下载状态">
+        <div>
+          <span class="status-dot" aria-hidden="true"></span><strong>本地题库</strong
+          ><span id="archive-summary">正在读取…</span>
+        </div>
+        <button id="sync" class="quiet">同步 / 续传</button>
+        <p id="sync-message" class="subtle" hidden></p>
+      </section>
+      <section id="contests-view">
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">PRACTICE, AT YOUR PACE</p>
+            <h1>我的比赛</h1>
+            <p class="subtle">选好题，留一段专注的时间。</p>
+          </div>
+          <button id="create-open" class="primary">＋ 创建比赛</button>
+        </div>
+        <div class="contest-layout">
+          <aside class="session-pane">
+            <div class="section-heading">
+              <h2>比赛列表 <span id="session-count" class="count">0</span></h2>
+              <button id="clear" class="text-button">清空</button>
+            </div>
+            <div id="session-list"><p class="subtle">正在读取…</p></div>
+          </aside>
+          <section id="session-detail" class="detail-pane" aria-label="比赛详情">
+            <div class="empty">
+              <div class="empty-symbol" aria-hidden="true">[ &nbsp; ]</div>
+              <h2>从一场新比赛开始</h2>
+              <p>
+                创建比赛后，在这里开始计时和查看题目。<br />题目来自 Codeforces 与 AtCoder
+                真实题库。
+              </p>
+              <button class="primary" data-action="create">创建第一场比赛</button>
+            </div>
+          </section>
+        </div>
+      </section>
+      <section id="bank-view" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">YOUR OFFLINE ARCHIVE</p>
+            <h1>本地题库</h1>
+            <p class="subtle">题面与配图保存在本机。断网后，仍可阅读和组题。</p>
+          </div>
+          <button id="manual-create" class="primary" disabled>用已选 0 题组比赛</button>
+        </div>
+        <form id="search-form" class="filters">
+          <label
+            >平台<select name="platform">
+              <option value="">全部平台</option>
+              <option value="cf">Codeforces</option>
+              <option value="atcoder">AtCoder</option>
+            </select></label
+          ><label class="search-label"
+            >搜索<input type="search" name="q" placeholder="输入题号或题目名称" /></label
+          ><label>最低难度<input type="number" name="min" placeholder="不限" /></label
+          ><label>最高难度<input type="number" name="max" placeholder="不限" /></label
+          ><label class="check-label"
+            ><input type="checkbox" name="ready" value="1" /> 仅离线就绪</label
+          ><button type="submit">筛选</button>
+        </form>
+        <div class="bank-info">
+          <span id="bank-count" class="subtle">正在读取…</span
+          ><button id="selection-clear" class="text-button" hidden>取消选择</button>
+        </div>
+        <div class="table-wrap">
+          <table class="bank-table">
+            <thead>
+              <tr>
+                <th><span class="sr-only">选择</span></th>
+                <th>题目</th>
+                <th>平台</th>
+                <th>难度 / 估分</th>
+                <th>题面</th>
+                <th>比赛日期</th>
+              </tr>
+            </thead>
+            <tbody id="problem-list"></tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <button id="page-prev">上一页</button><span id="page-label"></span
+          ><button id="page-next">下一页</button>
+        </div>
+        <p class="footnote">
+          Codeforces：2024-07-01 起；AtCoder：2023-07-03
+          起。按原比赛开始日期（UTC）筛选；无难度的题目保留，可手动组成不计分比赛。
+        </p>
+      </section>
+    </main>
+    <dialog id="create-dialog">
+      <form id="create-form">
+        <div class="dialog-heading">
+          <h2>创建比赛</h2>
+          <button type="button" class="close" data-close aria-label="关闭">×</button>
+        </div>
+        <p id="create-help" class="subtle">从离线就绪的真实题目中，按当前训练分自动组题。</p>
+        <label>比赛名称<input name="name" value="专注训练" required maxlength="120" /></label>
+        <div class="form-grid">
+          <label
+            >平台<select name="platform">
+              <option value="cf">Codeforces</option>
+              <option value="atcoder">AtCoder</option>
+            </select></label
+          ><label
+            >题目数量<input name="count" type="number" min="1" max="26" value="6" required /></label
+          ><label
+            >时长（分钟）<input
+              name="duration"
+              type="number"
+              min="5"
+              max="1440"
+              value="120"
+              required /></label
+          ><label>预约开始时间<input name="scheduled_at" type="datetime-local" /></label>
+        </div>
+        <p class="subtle small">
+          时间按此设备时区显示。留空可随时按“立即开始”；预约后到时自动开始。
+        </p>
+        <label class="check-label"
+          ><input name="rated" type="checkbox" checked /> 结束后更新本地训练分</label
+        >
+        <p id="create-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button type="button" data-close>取消</button
+          ><button class="primary" type="submit">创建比赛</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="problem-dialog" class="reader-dialog">
+      <div class="dialog-heading">
+        <div>
+          <p id="reader-id" class="eyebrow"></p>
+          <h2 id="reader-title"></h2>
+        </div>
+        <button class="close" data-close aria-label="关闭题面">×</button>
+      </div>
+      <div class="reader-toolbar">
+        <span id="reader-status"></span
+        ><label id="language-label"
+          >语言<select id="language">
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select></label
+        ><a id="reader-source" target="_blank" rel="noreferrer">原题 ↗</a
+        ><a id="reader-submit" target="_blank" rel="noreferrer">在线交题 ↗</a>
+      </div>
+      <div id="reader-error" class="form-error"></div>
+      <article id="statement" class="statement" data-language="en"></article>
+      <p class="footnote">
+        题面来自原评测平台。提交与评测需要联网；本应用保存题面，不包含隐藏测试数据。
+      </p>
+    </dialog>
+    <dialog id="record-dialog">
+      <form id="record-form">
+        <div class="dialog-heading">
+          <h2>录入解题结果</h2>
+          <button type="button" class="close" data-close aria-label="关闭">×</button>
+        </div>
+        <input name="ordinal" type="hidden" /><label
+          >结果<select name="solved">
+            <option value="true">已通过（AC）</option>
+            <option value="false">未通过</option>
+          </select></label
+        >
+        <div class="form-grid">
+          <label
+            >从开赛到 AC 的用时（分钟）<input
+              name="elapsed"
+              type="number"
+              min="0"
+              step="0.01" /></label
+          ><label
+            >错误提交次数<input name="wrong" type="number" min="0" max="10000" value="0" required
+          /></label>
+        </div>
+        <p id="record-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions"><button class="primary">保存结果</button></div>
+      </form>
+    </dialog>
+    <dialog id="confirm-dialog">
+      <form method="dialog">
+        <div class="dialog-heading"><h2 id="confirm-title"></h2></div>
+        <p id="confirm-body" class="subtle"></p>
+        <div class="dialog-actions">
+          <button value="cancel">取消</button><button value="ok" class="primary">确认</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="profile-dialog">
+      <form id="profile-form">
+        <div class="dialog-heading">
+          <h2>本地训练分</h2>
+          <button type="button" class="close" data-close aria-label="关闭">×</button>
+        </div>
+        <p class="subtle">自动组题以此为基准；本地训练分独立于平台官方 rating。</p>
+        <label
+          >平台<select name="platform">
+            <option value="cf">Codeforces</option>
+            <option value="atcoder">AtCoder</option>
+          </select></label
+        ><label>训练分<input name="rating" type="number" min="0" max="5000" required /></label>
+        <p id="profile-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions"><button class="primary">保存</button></div>
+      </form>
+    </dialog>
+  </body>
+</html>

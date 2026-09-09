@@ -1,0 +1,4 @@
+[
+  { "id": "abc999_a", "contest_id": "abc999", "point": 100, "solver_count": 5000 },
+  { "id": "abc999_b", "contest_id": "abc999", "point": 400, "solver_count": 500 }
+]
