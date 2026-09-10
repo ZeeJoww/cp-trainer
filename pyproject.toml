@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cp-trainer-local"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first Codeforces and AtCoder training planner, contest generator, and practice rating tracker"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,6 +16,7 @@ dependencies = []
 cp-trainer = "cptrainer.cli:main"
 cp-trainer-web = "cptrainer.web:main"
 cp-trainer-archive = "cptrainer.archive:main"
+cp-trainer-testdata = "cptrainer.testdata:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

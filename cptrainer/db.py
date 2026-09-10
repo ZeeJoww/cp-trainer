@@ -137,7 +137,7 @@ class Database:
 
     def migrate(self) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if version > 1:
+        if version > 2:
             raise ValueError("数据库版本高于此程序，请使用新版 cp-trainer。")
         if version == 0 and self.path.stat().st_size:
             self.backup("before-v1")
@@ -154,6 +154,39 @@ class Database:
                     FOREIGN KEY(platform, problem_id) REFERENCES problems(platform, problem_id)
                 )""")
                 conn.execute("PRAGMA user_version = 1")
+        if version < 2:
+            if version == 1:
+                self.backup("before-v2")
+            self.conn.executescript("""
+                BEGIN;
+                CREATE TABLE test_archives (
+                    branch TEXT PRIMARY KEY, contest_id TEXT NOT NULL, title TEXT NOT NULL,
+                    started_at INTEGER NOT NULL, revision TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+                    problem_count INTEGER NOT NULL DEFAULT 0, case_count INTEGER NOT NULL DEFAULT 0,
+                    bytes INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '',
+                    error TEXT NOT NULL DEFAULT '', downloaded_at INTEGER
+                );
+                CREATE TABLE judge_sets (
+                    platform TEXT NOT NULL DEFAULT 'atcoder', problem_id TEXT NOT NULL,
+                    branch TEXT NOT NULL REFERENCES test_archives(branch), directory TEXT NOT NULL,
+                    case_count INTEGER NOT NULL, manifest_json TEXT NOT NULL,
+                    checker TEXT NOT NULL, tolerance REAL, reason TEXT NOT NULL DEFAULT '',
+                    time_limit_ms INTEGER NOT NULL, memory_limit_mb INTEGER NOT NULL,
+                    PRIMARY KEY(platform, problem_id),
+                    FOREIGN KEY(platform, problem_id) REFERENCES problems(platform, problem_id)
+                );
+                CREATE TABLE judge_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, platform TEXT NOT NULL, problem_id TEXT NOT NULL,
+                    session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
+                    language TEXT NOT NULL, source TEXT NOT NULL, verdict TEXT NOT NULL DEFAULT 'QUEUED',
+                    submitted_at INTEGER NOT NULL, finished_at INTEGER,
+                    passed INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL,
+                    result_json TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX idx_judge_runs_problem ON judge_runs(platform, problem_id, id);
+                PRAGMA user_version = 2;
+                COMMIT;
+            """)
 
     def backup(self, label: str = "manual") -> Path:
         folder = self.path.parent / "backups"

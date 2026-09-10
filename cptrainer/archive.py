@@ -273,14 +273,15 @@ class Sanitize(HTMLParser):
             self.parts.append(escape(data))
 
 
-def archive_statements(db: Database, paths: Paths, platform: str, progress=print, limit: int = 0) -> None:
+def archive_statements(db: Database, paths: Paths, platform: str, progress=print, limit: int = 0, contest_ids: set[str] | None = None) -> None:
     downloader = Downloader(paths)
     rows = db.conn.execute("""SELECT p.* FROM problems p LEFT JOIN statements s USING(platform, problem_id)
         WHERE p.platform=? AND p.is_real=1 AND COALESCE(s.status,'pending')!='ready'
         ORDER BY p.published_at DESC, p.contest_id, p.problem_index""", (platform,)).fetchall()
     groups = defaultdict(list)
     for row in rows:
-        groups[row["contest_id"]].append(row)
+        if contest_ids is None or row["contest_id"] in contest_ids:
+            groups[row["contest_id"]].append(row)
     if limit:
         groups = dict(list(groups.items())[:limit])
     for number, (contest, items) in enumerate(groups.items(), 1):

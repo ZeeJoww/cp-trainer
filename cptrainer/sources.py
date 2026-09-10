@@ -347,7 +347,7 @@ def sync_atcoder(
     report.problems = db.upsert_problems(problems)
     with db.conn:
         # Retain old rows for saved-session history, outside the selected bank.
-        db.conn.execute("UPDATE problems SET is_real=0 WHERE platform='atcoder' AND problem_id NOT IN (" + ",".join("?" for p in problems) + ")", [p.problem_id for p in problems])
+        db.conn.execute("UPDATE problems SET is_real=0 WHERE platform='atcoder' AND problem_id NOT IN (SELECT problem_id FROM judge_sets WHERE platform='atcoder') AND problem_id NOT IN (" + ",".join("?" for p in problems) + ")", [p.problem_id for p in problems])
 
     handle = config.atcoder_handle.strip()
     if not handle:

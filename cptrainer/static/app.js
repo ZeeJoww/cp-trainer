@@ -137,6 +137,7 @@ async function refresh() {
     }
     renderSessionList();
     if (selectedId) await loadSession();
+    if (location.hash === "#judge") await loadJudgePage();
   } finally {
     refreshing = false;
   }
@@ -247,7 +248,13 @@ $("#session-detail").addEventListener("click", (event) => {
   const button = event.target.closest("[data-action], [data-record], [data-problem]");
   if (!button) return;
   if (button.dataset.problem) {
-    action(() => openProblem(button.dataset.platform, button.dataset.problem));
+    action(() =>
+      openProblem(
+        button.dataset.platform,
+        button.dataset.problem,
+        currentSession?.status === "running" && !currentSession.ended ? currentSession.id : null,
+      ),
+    );
     return;
   }
   if (button.dataset.record) {
@@ -362,7 +369,7 @@ async function loadBank() {
     ? bankResult.items
         .map(
           (p) =>
-            `<tr><td><input type="checkbox" data-select="${escapeHtml(p.platform + ":" + p.problem_id)}" aria-label="选择 ${escapeHtml(p.problem_id)}" ${p.offline !== "ready" ? "disabled" : ""} ${selection.has(p.platform + ":" + p.problem_id) ? "checked" : ""} /></td><td><button class="task-title" data-platform="${p.platform}" data-problem="${escapeHtml(p.problem_id)}">${escapeHtml(p.title)}</button><span class="problem-id">${escapeHtml(p.problem_id)}</span></td><td>${platformName(p.platform)}</td><td>${p.difficulty == null ? "暂无估分" : Math.round(p.difficulty)}</td><td><span class="${p.offline === "ready" ? "chip" : "subtle"}">${offlineName(p.offline)}</span></td><td>${p.published_at ? new Date(p.published_at * 1000).toISOString().slice(0, 10) : "—"}</td></tr>`,
+            `<tr><td><input type="checkbox" data-select="${escapeHtml(p.platform + ":" + p.problem_id)}" aria-label="选择 ${escapeHtml(p.problem_id)}" ${p.offline !== "ready" ? "disabled" : ""} ${selection.has(p.platform + ":" + p.problem_id) ? "checked" : ""} /></td><td><button class="task-title" data-platform="${p.platform}" data-problem="${escapeHtml(p.problem_id)}">${escapeHtml(p.title)}</button><span class="problem-id">${escapeHtml(p.problem_id)}</span>${p.judge_cases ? `<span class="chip">可评测 · ${p.judge_cases} 个测试点</span>` : ""}</td><td>${platformName(p.platform)}</td><td>${p.difficulty == null ? "暂无估分" : Math.round(p.difficulty)}</td><td><span class="${p.offline === "ready" ? "chip" : "subtle"}">${offlineName(p.offline)}</span></td><td>${p.published_at ? new Date(p.published_at * 1000).toISOString().slice(0, 10) : "—"}</td></tr>`,
         )
         .join("")
     : '<tr><td colspan="6" class="subtle">没有匹配的题目。调整筛选，或点击“同步 / 续传”下载真实题库。</td></tr>';
@@ -415,7 +422,13 @@ $("#selection-clear").addEventListener("click", () => {
   action(loadBank);
 });
 
-async function openProblem(platform, id) {
+let readerProblem = null,
+  readerSession = null;
+async function openProblem(platform, id, sessionId = null) {
+  readerProblem = null;
+  readerSession = sessionId;
+  $("#reader-judge").disabled = true;
+  $("#reader-judge-info").textContent = "";
   $("#reader-title").textContent = "正在读取题面…";
   $("#reader-id").textContent = platformName(platform) + " / " + id;
   $("#statement").textContent = "";
@@ -432,6 +445,11 @@ async function openProblem(platform, id) {
     $("#reader-status").textContent = offlineName(p.offline);
     $("#reader-source").href = p.url;
     $("#reader-submit").href = p.submit_url;
+    readerProblem = p;
+    $("#reader-judge").disabled = !p.judge || p.judge.checker === "unsupported";
+    $("#reader-judge-info").textContent = p.judge
+      ? `${p.judge.case_count} 个存档测试点 · ${p.judge.time_limit_ms / 1000} 秒 / ${p.judge.memory_limit_mb} MiB · ${p.judge.reason}`
+      : "此题暂未保存测试数据。可在“离线评测”页下载存档。";
     $("#reader-error").textContent =
       p.offline === "ready"
         ? ""
@@ -534,15 +552,207 @@ $("#profile-form").addEventListener("submit", async (event) => {
     $("#profile-error").textContent = error.message;
   }
 });
+const verdictName = (verdict) =>
+  ({
+    QUEUED: "等待评测",
+    JUDGING: "正在评测",
+    AC: "AC · 已通过",
+    WA: "WA · 答案不匹配",
+    TLE: "TLE · 超时",
+    MLE: "MLE · 内存超限",
+    RE: "RE · 运行错误",
+    CE: "CE · 编译错误",
+    OLE: "OLE · 输出超限",
+    SE: "评测环境 / 数据错误",
+    CANCELLED: "已取消",
+    INTERRUPTED: "服务重启，评测中断",
+  })[verdict] || verdict;
+let judgeProblem = null,
+  judgeSession = null,
+  judgeId = null,
+  judgeSignature = "",
+  judgePolling = false;
+
+async function loadJudgePage() {
+  const [data, runs] = await Promise.all([api("/api/judge/status"), api("/api/judge/runs")]);
+  const dates = data.contests.map((c) => c.started_at);
+  const range = dates.length
+    ? `${new Date(Math.min(...dates) * 1000).toISOString().slice(0, 10)} 至 ${new Date(Math.max(...dates) * 1000).toISOString().slice(0, 10)}`
+    : "尚未下载";
+  $("#testdata-summary").textContent =
+    `${data.ready} / ${data.total || 100} 场已下载 · ${data.problems} 题 · ${data.cases.toLocaleString()} 个测试点 · ${(data.bytes / 1024 ** 3).toFixed(2)} GiB`;
+  $("#testdata-progress").textContent = `${range}。${
+    data.running
+      ? data.sync.message || "下载进行中，关闭网页后可继续。"
+      : data.sync.error ||
+        `可直接评测 ${Object.entries(data.checkers)
+          .filter(([key]) => key !== "unsupported")
+          .reduce(
+            (sum, [, count]) => sum + count,
+            0,
+          )} 题；${data.checkers.unsupported || 0} 题因特殊规则或数据缺失暂不可评测。`
+  }`;
+  $("#testdata-sync").disabled = data.running;
+  $("#testdata-sync").textContent = data.running ? "测试数据下载中…" : "下载最近 100 场 / 续传";
+  $("#judge-environment").textContent = data.runtime.available
+    ? `运行环境已就绪：${data.runtime.versions.replaceAll("\n", " · ")}`
+    : data.runtime.message;
+  $("#testdata-contests").innerHTML = data.contests.length
+    ? data.contests
+        .map(
+          (c) =>
+            `<tr><td><a href="#bank" data-contest-filter="${escapeHtml(c.contest_id)}">${escapeHtml(c.contest_id)}</a></td><td>${new Date(c.started_at * 1000).toISOString().slice(0, 10)}</td><td>${c.problem_count} / ${c.case_count}</td><td>${escapeHtml({ ready: "已下载", partial: "已下载，原存档有缺失", downloading: "下载中", pending: "等待下载", failed: "失败，可重试" }[c.status])}${c.error ? `<br /><span class="form-error">${escapeHtml(c.error)}</span>` : ""}</td></tr>`,
+        )
+        .join("")
+    : '<tr><td colspan="4">尚未下载测试数据，点击上方下载按钮开始。</td></tr>';
+  $("#judge-history").innerHTML = runs.items.length
+    ? `<table><thead><tr><th>提交</th><th>题目</th><th>语言</th><th>结果</th><th>通过</th><th>时间</th></tr></thead><tbody>${runs.items.map((r) => `<tr><td><button data-judge-run="${r.id}">#${r.id} 查看</button></td><td>${escapeHtml(r.problem_id)}</td><td>${r.language === "cpp17" ? "C++17" : "Python 3"}</td><td>${verdictName(r.verdict)}</td><td>${r.passed} / ${r.total}</td><td>${dateText(r.submitted_at)}</td></tr>`).join("")}</tbody></table>`
+    : '<p class="subtle">还没有提交。在本地题库勾选“可离线评测”，打开题目后提交代码。</p>';
+}
+$("#testdata-sync").addEventListener("click", () =>
+  action(async () => {
+    await api("/api/testdata/sync", {});
+    await loadJudgePage();
+  }),
+);
+$("#judge-environment-check").addEventListener("click", () =>
+  action(async () => {
+    await api("/api/judge/environment", {});
+    await loadJudgePage();
+  }),
+);
+$("#testdata-contests").addEventListener("click", (event) => {
+  const link = event.target.closest("[data-contest-filter]");
+  if (link) {
+    $("#search-form").elements.q.value = link.dataset.contestFilter;
+    $("#search-form").elements.platform.value = "atcoder";
+    bankPage = 1;
+  }
+});
+function showJudge(problem, sessionId = null) {
+  judgeProblem = problem;
+  judgeSession = sessionId;
+  judgeId = null;
+  judgeSignature = "";
+  $("#judge-title").textContent = `离线评测 · ${problem.problem_id}`;
+  $("#judge-error").textContent = "";
+  $("#judge-result").textContent = "";
+  $("#judge-cancel").hidden = true;
+  $("#judge-form [type=submit]").disabled =
+    !problem.judge || problem.judge.checker === "unsupported";
+  $("#judge-session-label").hidden = !sessionId;
+  $("#judge-form").elements.session.checked = Boolean(sessionId);
+  $("#judge-rules").textContent = problem.judge
+    ? `${problem.judge.case_count} 个测试点；每点 ${problem.judge.time_limit_ms / 1000} 秒 / ${problem.judge.memory_limit_mb} MiB。${problem.judge.reason} 首个失败点后停止。`
+    : "此题没有可用测试数据。";
+  if (!$("#judge-dialog").open) $("#judge-dialog").showModal();
+}
+$("#reader-judge").addEventListener("click", () => {
+  if (readerProblem) showJudge(readerProblem, readerSession);
+});
+$("#judge-file").addEventListener("change", () =>
+  action(async () => {
+    const file = $("#judge-file").files[0];
+    if (!file) return;
+    if (file.size > 128 * 1024) throw new Error("代码文件超过 128 KiB。");
+    $("#judge-source").value = await file.text();
+    $("#judge-form").elements.language.value = /\.py$/i.test(file.name) ? "python3" : "cpp17";
+  }),
+);
+$("#judge-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.target,
+    button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  $("#judge-error").textContent = "";
+  try {
+    const run = await api("/api/judge/runs", {
+      platform: judgeProblem.platform,
+      problem_id: judgeProblem.problem_id,
+      language: form.elements.language.value,
+      source: form.elements.source.value,
+      session_id: form.elements.session.checked ? judgeSession : null,
+    });
+    judgeId = run.id;
+    judgeSignature = "";
+    await pollJudge();
+  } catch (error) {
+    $("#judge-error").textContent = error.message;
+    button.disabled = false;
+  }
+});
+$("#judge-cancel").addEventListener("click", () =>
+  action(async () => {
+    if (judgeId) await api(`/api/judge/runs/${judgeId}/cancel`, {});
+    await pollJudge();
+  }),
+);
+function renderJudge(run) {
+  const signature = JSON.stringify(run);
+  if (signature === judgeSignature) return;
+  judgeSignature = signature;
+  const busy = ["QUEUED", "JUDGING"].includes(run.verdict),
+    result = run.result;
+  $("#judge-form [type=submit]").disabled =
+    busy || !judgeProblem?.judge || judgeProblem.judge.checker === "unsupported";
+  $("#judge-cancel").hidden = !busy;
+  $("#judge-result").innerHTML =
+    `<h3>${escapeHtml(verdictName(run.verdict))}</h3><p>提交 #${run.id} · 已执行 ${result.cases?.length || 0} / ${run.total} 个测试点，已通过 ${run.passed} 个。</p>${result.message ? `<pre class="judge-message">${escapeHtml(result.message)}</pre>` : ""}${(
+      result.cases || []
+    )
+      .map(
+        (c) =>
+          `<details><summary>${escapeHtml(c.name)} · ${verdictName(c.verdict)} · ${c.elapsed_ms} ms</summary>${[
+            ["input", "输入（前 2,000 字节）"],
+            ["expected", "标准输出（前 2,000 字节）"],
+            ["actual", "程序输出（前 2,000 字节）"],
+            ["stderr", "错误信息"],
+          ]
+            .filter(([key]) => c[key] !== undefined && c[key] !== "")
+            .map(([key, label]) => `<p>${label}</p><pre>${escapeHtml(c[key])}</pre>`)
+            .join("")}</details>`,
+      )
+      .join("")}`;
+}
+async function pollJudge() {
+  if (!judgeId || judgePolling || !$("#judge-dialog").open) return;
+  judgePolling = true;
+  const id = judgeId;
+  try {
+    const run = await api(`/api/judge/runs/${id}`);
+    if (judgeId === id) renderJudge(run);
+  } finally {
+    judgePolling = false;
+  }
+}
+$("#judge-history").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-judge-run]");
+  if (button)
+    action(async () => {
+      const run = await api(`/api/judge/runs/${button.dataset.judgeRun}`);
+      const problem = await api(
+        `/api/problem?platform=${run.platform}&id=${encodeURIComponent(run.problem_id)}`,
+      );
+      showJudge(problem);
+      $("#judge-source").value = run.source;
+      $("#judge-form").elements.language.value = run.language;
+      judgeId = run.id;
+      renderJudge(run);
+    });
+});
+setInterval(() => action(pollJudge), 1000);
+
 function navigate() {
-  const bank = location.hash === "#bank";
-  $("#bank-view").hidden = !bank;
-  $("#contests-view").hidden = bank;
+  const view = ["bank", "judge"].includes(location.hash.slice(1))
+    ? location.hash.slice(1)
+    : "contests";
+  for (const name of ["bank", "judge", "contests"]) $(`#${name}-view`).hidden = view !== name;
   document.querySelectorAll("[data-nav]").forEach((a) => {
-    if (a.dataset.nav === (bank ? "bank" : "contests")) a.setAttribute("aria-current", "page");
+    if (a.dataset.nav === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   });
-  if (bank) action(loadBank);
+  if (view === "bank") action(loadBank);
+  if (view === "judge") action(loadJudgePage);
 }
 window.addEventListener("hashchange", navigate);
 navigate();

@@ -21,6 +21,8 @@ from .db import Database, session_ended as ended
 from .http_client import CachedHttpClient
 from .planner import _point_profile, create_training_contest, finish_session
 from .sources import sync_atcoder, sync_codeforces
+from .testdata import sync_testdata, testdata_status
+from .judge import Judge, run_payload, runtime_status
 
 STATIC = Path(__file__).parent / "static"
 
@@ -68,6 +70,24 @@ class TrainerServer(HTTPServer):
         self.sync_thread: threading.Thread | None = None
         self.sync_info = {"running": False, "message": "", "errors": []}
         self.last_tick = 0.0
+        self.judge = Judge(paths)
+        self.testdata_thread = None
+        self.testdata_info = {"message": "", "error": ""}
+
+    def start_testdata(self):
+        if self.testdata_thread and self.testdata_thread.is_alive():
+            raise ValueError("测试数据正在下载")
+        with archive_lock(self.paths, "testdata"):
+            pass
+        self.testdata_info = {"message": "正在核对存档中的最近 100 场…", "error": ""}
+        def run():
+            try:
+                with self.database() as db:
+                    sync_testdata(db, self.paths, progress=lambda message: self.testdata_info.update(message=message))
+            except Exception as exc:
+                self.testdata_info["error"] = f"{type(exc).__name__}: {str(exc)[:300]}"
+        self.testdata_thread = threading.Thread(target=run, name="cp-trainer-testdata", daemon=True)
+        self.testdata_thread.start()
 
     @contextmanager
     def database(self):
@@ -153,7 +173,7 @@ class Handler(BaseHTTPRequestHandler):
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("请求应为 JSON")
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 32768:
+                if not 0 < length <= (800000 if url.path == "/api/judge/runs" else 32768):
                     raise ValueError("请求大小超出限制")
                 data = json.loads(self.rfile.read(length))
                 if not isinstance(data, dict):
@@ -194,6 +214,26 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(target.read_bytes(), content_type=content_type)
 
     def get_data(self, db, path, query):
+        if path == "/api/judge/status":
+            running = False
+            try:
+                with archive_lock(self.server.paths, "testdata"):
+                    pass
+            except ValueError:
+                running = True
+            return testdata_status(db) | {"running": running, "sync": self.server.testdata_info, "runtime": self.server.judge.runtime}
+        if path == "/api/judge/runs":
+            if query.get("problem_id"):
+                rows = db.conn.execute("SELECT * FROM judge_runs WHERE platform='atcoder' AND problem_id=? ORDER BY id DESC LIMIT 30", (query["problem_id"],))
+            else:
+                rows = db.conn.execute("SELECT * FROM judge_runs ORDER BY id DESC LIMIT 50")
+            return {"items": [run_payload(row) for row in rows]}
+        match = re.fullmatch(r"/api/judge/runs/(\d+)", path)
+        if match:
+            row = db.conn.execute("SELECT * FROM judge_runs WHERE id=?", (int(match[1]),)).fetchone()
+            if not row:
+                raise KeyError("评测记录不存在")
+            return run_payload(row, source=True)
         if path == "/api/state":
             sessions = [dict(s) | {"ended": ended(s)} for s in db.list_sessions(500)]
             return {"token": self.server.token, "now": int(time.time()), "archive": archive_status(db), "sessions": sessions,
@@ -216,6 +256,8 @@ class Handler(BaseHTTPRequestHandler):
                 values += ["%" + query["q"][:160] + "%"] * 2
             if query.get("ready") == "1":
                 clauses.append("s.status='ready'")
+            if query.get("judge") == "1":
+                clauses.append("EXISTS (SELECT 1 FROM judge_sets j WHERE j.platform=p.platform AND j.problem_id=p.problem_id AND j.checker!='unsupported')")
             for key, op in [("min", ">="), ("max", "<=")]:
                 if query.get(key):
                     val = float(query[key])
@@ -226,7 +268,7 @@ class Handler(BaseHTTPRequestHandler):
             base = " FROM problems p LEFT JOIN statements s USING(platform,problem_id) WHERE " + " AND ".join(clauses)
             total = db.conn.execute("SELECT COUNT(*)" + base, values).fetchone()[0]
             page = max(1, min(100000, int(query.get("page", 1))))
-            rows = db.conn.execute("SELECT p.platform,p.problem_id,p.contest_id,p.problem_index,p.title,p.difficulty,p.url,p.published_at,COALESCE(s.status,'pending') offline" + base + " ORDER BY p.published_at DESC,p.contest_id DESC,p.problem_index LIMIT 40 OFFSET ?", values + [(page - 1) * 40]).fetchall()
+            rows = db.conn.execute("SELECT p.platform,p.problem_id,p.contest_id,p.problem_index,p.title,p.difficulty,p.url,p.published_at,COALESCE(s.status,'pending') offline,(SELECT case_count FROM judge_sets j WHERE j.platform=p.platform AND j.problem_id=p.problem_id AND j.checker!='unsupported') judge_cases" + base + " ORDER BY p.published_at DESC,p.contest_id DESC,p.problem_index LIMIT 40 OFFSET ?", values + [(page - 1) * 40]).fetchall()
             return {"total": total, "page": page, "items": [dict(r) for r in rows]}
         if path == "/api/problem":
             row = db.conn.execute("""SELECT p.platform,p.problem_id,p.contest_id,p.problem_index,p.title,p.difficulty,p.url,
@@ -234,14 +276,29 @@ class Handler(BaseHTTPRequestHandler):
                 WHERE p.platform=? AND p.problem_id=? AND p.is_real=1""", (query.get("platform"), query.get("id"))).fetchone()
             if not row:
                 raise KeyError("题目不存在")
-            return dict(row) | {"submit_url": submit_url(row)}
+            tests = db.conn.execute("SELECT case_count,checker,reason,time_limit_ms,memory_limit_mb FROM judge_sets WHERE platform=? AND problem_id=?", (row["platform"], row["problem_id"])).fetchone()
+            return dict(row) | {"submit_url": submit_url(row), "judge": dict(tests) if tests else None}
         raise KeyError("接口不存在")
 
     def mutate(self, db, path, data):
+        if path == "/api/testdata/sync":
+            self.server.start_testdata()
+            return {"ok": True}
+        if path == "/api/judge/environment":
+            self.server.judge.runtime = runtime_status(self.server.paths)
+            return self.server.judge.runtime
+        if path == "/api/judge/runs":
+            return {"id": self.server.judge.submit(db, data)}
+        match = re.fullmatch(r"/api/judge/runs/(\d+)/cancel", path)
+        if match:
+            self.server.judge.cancel_run(int(match[1]), db)
+            return {"ok": True}
         if path == "/api/sync":
             self.server.start_sync()
             return {"ok": True}
         if path == "/api/sessions/clear":
+            if db.conn.execute("SELECT 1 FROM judge_runs WHERE session_id IS NOT NULL AND verdict IN ('QUEUED','JUDGING')").fetchone():
+                raise ValueError("比赛还有评测未完成，请先等待或取消评测")
             backup = db.clear_sessions()
             return {"backup": backup.name}
         if path == "/api/profiles":
@@ -297,6 +354,8 @@ class Handler(BaseHTTPRequestHandler):
         elif action == "finish":
             if session["status"] != "running":
                 raise ValueError("请先开始比赛")
+            if db.conn.execute("SELECT 1 FROM judge_runs WHERE session_id=? AND verdict IN ('QUEUED','JUDGING')", (sid,)).fetchone():
+                raise ValueError("本场还有评测未完成，请先等待或取消评测")
             finish_session(db, sid)
         elif action == "record":
             if session["status"] != "running":

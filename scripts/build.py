@@ -6,9 +6,9 @@ import hashlib
 root = Path(__file__).resolve().parents[1]
 output = root / "dist"
 output.mkdir(exist_ok=True)
-target = output / "cp-trainer-0.2.0.zip"
+target = output / "cp-trainer-0.3.0.zip"
 files = [p for p in (root / "cptrainer").rglob("*") if p.is_file() and "__pycache__" not in p.parts]
-files += [root / name for name in ["README.md", "LICENSE", "pyproject.toml", "CHANGELOG.md", "scripts/install_service.py"]]
+files += [root / name for name in ["README.md", "LICENSE", "pyproject.toml", "CHANGELOG.md", "scripts/install_service.py", "scripts/setup_judge.py", "scripts/Dockerfile.judge"]]
 with ZipFile(target, "w", ZIP_DEFLATED) as archive:
     for path in sorted(files):
         archive.write(path, "cp-trainer/" + path.relative_to(root).as_posix())

@@ -36,6 +36,7 @@ body {
 }
 button,
 input,
+textarea,
 select {
   font: inherit;
 }
@@ -69,11 +70,13 @@ a {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 select:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 input,
+textarea,
 select {
   width: 100%;
   background: var(--surface);
@@ -82,6 +85,61 @@ select {
   border-radius: 6px;
   padding: 9px 10px;
   min-width: 0;
+}
+textarea {
+  resize: vertical;
+  font-family: ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  tab-size: 4;
+}
+.judge-overview {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px;
+  margin-bottom: 28px;
+}
+.judge-overview p {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+#judge-view th,
+#judge-view td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+#judge-history {
+  margin: 16px 0 24px;
+}
+#judge-history table {
+  min-width: 640px;
+}
+.archive-details {
+  margin: 18px 0;
+}
+.archive-details summary,
+#judge-result summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+#judge-result {
+  margin-top: 24px;
+}
+#judge-result details {
+  border-top: 1px solid var(--line);
+}
+#judge-result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--subsurface);
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+#judge-dialog form {
+  gap: 16px;
 }
 input[type="checkbox"] {
   width: 17px;

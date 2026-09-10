@@ -116,3 +116,59 @@ test("theme persists and 320px layout remains usable", async ({ page }, testInfo
   await page.locator("#theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
+
+test("offline judge: Python and C++ AC, WA, CE, history and contest scoring", async ({
+  page,
+}, testInfo) => {
+  test.skip(!process.env.CP_TRAINER_JUDGE_TEST_IMAGE, "Requires prepared Docker judge image");
+  test.setTimeout(120000);
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.getByRole("link", { name: "本地题库", exact: true }).click();
+  await page.locator('#search-form [name="q"]').fill("abc350_a");
+  await page.locator('#search-form [name="judge"]').check();
+  await page.getByRole("button", { name: "筛选", exact: true }).click();
+  await expect(page.locator("#bank-count")).toContainText("共 1 道");
+  await page.locator("[data-select]").check();
+  await page.locator("#manual-create").click();
+  await page.locator('#create-form [type="submit"]').click();
+  await page.getByRole("button", { name: "立即开始", exact: false }).click();
+  await page.locator("#session-detail [data-problem]").click();
+  await page.locator("#reader-judge").click();
+  await page.locator('#judge-form [name="language"]').selectOption("python3");
+  await page.locator("#judge-source").fill("n=int(input())\nprint(n*n)\n");
+  await page.getByRole("button", { name: "提交并评测", exact: true }).click();
+  await expect(page.locator("#judge-result h3")).toHaveText("AC · 已通过", { timeout: 30000 });
+  await expect(page.locator("#judge-result")).toContainText("已通过 2 个");
+  await page.getByRole("button", { name: "关闭评测", exact: true }).click();
+  await page.getByRole("button", { name: "关闭题面", exact: true }).click();
+  await expect(page.locator(".task-meta")).toContainText("AC", { timeout: 10000 });
+  await page.locator("#session-detail [data-problem]").click();
+  await page.locator("#reader-judge").click();
+  await page.locator('#judge-form [name="language"]').selectOption("cpp17");
+  await page
+    .locator("#judge-source")
+    .fill('#include <iostream>\nint main(){long long n;std::cin>>n;std::cout<<n*n<<"\\n";}');
+  await page.getByRole("button", { name: "提交并评测", exact: true }).click();
+  await expect(page.locator("#judge-result h3")).toHaveText("AC · 已通过", { timeout: 30000 });
+  await page.locator('#judge-form [name="language"]').selectOption("python3");
+  await page.locator("#judge-source").fill("print(0)");
+  await page.getByRole("button", { name: "提交并评测", exact: true }).click();
+  await expect(page.locator("#judge-result h3")).toHaveText("WA · 答案不匹配", { timeout: 30000 });
+  await page.locator('#judge-form [name="language"]').selectOption("cpp17");
+  await page.locator("#judge-source").fill("int main(");
+  await page.getByRole("button", { name: "提交并评测", exact: true }).click();
+  await expect(page.locator("#judge-result h3")).toHaveText("CE · 编译错误", { timeout: 30000 });
+  await page.reload();
+  await page.getByRole("link", { name: "离线评测", exact: true }).click();
+  await expect(page.locator("#judge-history tbody tr")).toHaveCount(4);
+  await page.locator("[data-judge-run]").first().click();
+  await expect(page.locator("#judge-source")).toHaveValue("int main(");
+  await page.setViewportSize({ width: 320, height: 760 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("judge-mobile.png"), fullPage: true });
+  await page.getByRole("button", { name: "关闭评测", exact: true }).click();
+  await page.setViewportSize({ width: 1365, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath("judge-desktop.png"), fullPage: true });
+  expect(errors).toEqual([]);
+});

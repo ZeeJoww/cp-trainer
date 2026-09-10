@@ -2,6 +2,7 @@
 from pathlib import Path
 from contextlib import closing
 import json
+import os
 import sqlite3
 import tempfile
 import threading
@@ -39,7 +40,12 @@ def seed(paths):
 
 def serve_fixture(directory):
     paths = Paths(Path(directory))
-    seed(paths)
+    if os.environ.get("CP_TRAINER_JUDGE_TEST_IMAGE"):
+        from test_judge import seed_judge
+        seed_judge(paths)
+        (paths.home / "judge-runtime.json").write_text(json.dumps({"image": os.environ["CP_TRAINER_JUDGE_TEST_IMAGE"], "versions": "Isolated test runtime"}))
+    else:
+        seed(paths)
     server = TrainerServer(("127.0.0.1", 0), paths)
     print(f"http://127.0.0.1:{server.server_port}", flush=True)
     server.serve_forever()
@@ -215,7 +221,7 @@ class ArchiveTests(unittest.TestCase):
                 conn.executescript(SCHEMA)
             db = Database(path)
             db.migrate(); db.migrate()
-            self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 2)
             self.assertEqual(len(list((path.parent / "backups").glob("*.sqlite3"))), 1)
             db.close()
 

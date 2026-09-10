@@ -24,6 +24,7 @@
       <nav aria-label="主导航">
         <a href="#contests" data-nav="contests" aria-current="page">比赛</a>
         <a href="#bank" data-nav="bank">本地题库</a>
+        <a href="#judge" data-nav="judge">离线评测</a>
       </nav>
       <div class="top-actions">
         <button id="profile-open" class="quiet">训练分</button
@@ -92,6 +93,8 @@
           ><label>最高难度<input type="number" name="max" placeholder="不限" /></label
           ><label class="check-label"
             ><input type="checkbox" name="ready" value="1" /> 仅离线就绪</label
+          ><label class="check-label"
+            ><input type="checkbox" name="judge" value="1" /> 可离线评测</label
           ><button type="submit">筛选</button>
         </form>
         <div class="bank-info">
@@ -120,6 +123,51 @@
         <p class="footnote">
           Codeforces：2024-07-01 起；AtCoder：2023-07-03
           起。按原比赛开始日期（UTC）筛选；无难度的题目保留，可手动组成不计分比赛。
+        </p>
+      </section>
+      <section id="judge-view" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">RUN, CHECK, IMPROVE</p>
+            <h1>离线评测</h1>
+            <p class="subtle">在题库打开一道题，提交代码，在本机运行存档测试数据。</p>
+          </div>
+          <button id="testdata-sync" class="primary">下载最近 100 场 / 续传</button>
+        </div>
+        <div class="judge-overview">
+          <strong id="testdata-summary">正在读取…</strong>
+          <p id="testdata-progress" role="status"></p>
+          <p class="subtle">
+            数据来源：<a
+              href="https://github.com/conlacda/atcoder-testcases"
+              target="_blank"
+              rel="noreferrer"
+              >conlacda/atcoder-testcases ↗</a
+            >。按存档中可用比赛的原比赛日期取最近 100 场；存档可能缺少新比赛或个别题目。
+          </p>
+          <p id="judge-environment" class="subtle"></p>
+          <button id="judge-environment-check">检查评测环境</button>
+        </div>
+        <h2>提交记录</h2>
+        <div id="judge-history" class="table-wrap"></div>
+        <details class="archive-details">
+          <summary>查看测试数据清单</summary>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>比赛</th>
+                  <th>日期（UTC）</th>
+                  <th>题目 / 测试点</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="testdata-contests"></tbody>
+            </table>
+          </div>
+        </details>
+        <p class="footnote">
+          本地结果基于下载到的测试数据。构造题、交互题等缺少专用判题器时不可评测；本机速度与官方环境不同，结果不等同于官方提交。
         </p>
       </section>
     </main>
@@ -179,12 +227,55 @@
           </select></label
         ><a id="reader-source" target="_blank" rel="noreferrer">原题 ↗</a
         ><a id="reader-submit" target="_blank" rel="noreferrer">在线交题 ↗</a>
+        <button id="reader-judge" class="primary" disabled>离线评测</button>
       </div>
+      <p id="reader-judge-info" class="subtle"></p>
       <div id="reader-error" class="form-error"></div>
       <article id="statement" class="statement" data-language="en"></article>
       <p class="footnote">
-        题面来自原评测平台。提交与评测需要联网；本应用保存题面，不包含隐藏测试数据。
+        题面来自原评测平台。有测试数据的题目可在本机离线评测；在线交题仍需联网。
       </p>
+    </dialog>
+    <dialog id="judge-dialog" class="reader-dialog">
+      <div class="dialog-heading">
+        <h2 id="judge-title">提交代码</h2>
+        <button class="close" data-close aria-label="关闭评测">×</button>
+      </div>
+      <form id="judge-form">
+        <div class="form-grid">
+          <label
+            >编程语言<select name="language">
+              <option value="cpp17">C++17</option>
+              <option value="python3">Python 3</option>
+            </select></label
+          ><label
+            >从文件读取代码<input id="judge-file" type="file" accept=".cpp,.cc,.cxx,.py,.txt"
+          /></label>
+        </div>
+        <label
+          >代码<textarea
+            name="source"
+            id="judge-source"
+            rows="12"
+            required
+            spellcheck="false"
+            autocapitalize="off"
+            autocomplete="off"
+            maxlength="131072"
+            placeholder="粘贴代码，或从本机选择文件。最多 128 KiB。"
+          ></textarea>
+        </label>
+        <label class="check-label" id="judge-session-label"
+          ><input name="session" type="checkbox" /> 将结果计入当前比赛</label
+        >
+        <p id="judge-rules" class="subtle"></p>
+        <p id="judge-error" class="form-error" role="alert"></p>
+        <div class="dialog-actions">
+          <button class="primary" type="submit">提交并评测</button
+          ><button id="judge-cancel" type="button" hidden>取消评测</button>
+        </div>
+      </form>
+      <div id="judge-result" aria-live="polite"></div>
     </dialog>
     <dialog id="record-dialog">
       <form id="record-form">
