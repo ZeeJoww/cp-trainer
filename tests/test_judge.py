@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 from cptrainer.testdata import archive_complete, download_archive, extract_archive, select_contests, statement_rules
-from cptrainer.judge import Judge, container_run, same_output
+from cptrainer.judge import Judge, container_run, same_output, finish_run
 from cptrainer.config import Paths
 from cptrainer.db import Database
 from test_web import seed
@@ -167,9 +167,12 @@ class JudgeStateTests(unittest.TestCase):
             with patch.object(threading.Thread, "start"):
                 run_id = judge.submit(db, data)
             run = db.conn.execute("SELECT * FROM judge_runs WHERE id=?", (run_id,)).fetchone()
-            judge._finish(db, run, "WA", 0, {})
+            finish_run(db, run, "WA", 0, {})
             self.assertEqual(db.get_session_items(sid)[0]["wrong_attempts"], 1)
-            judge._finish(db, run, "AC", 2, {})
+            with patch.object(threading.Thread, "start"):
+                ac_id = judge.submit(db, data)
+            ac_run = db.conn.execute("SELECT * FROM judge_runs WHERE id=?", (ac_id,)).fetchone()
+            finish_run(db, ac_run, "AC", 2, {})
             self.assertEqual(db.get_session_items(sid)[0]["solved"], 1)
             with patch.object(threading.Thread, "start"):
                 cancelled = judge.submit(db, data)

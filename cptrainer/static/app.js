@@ -428,6 +428,7 @@ async function openProblem(platform, id, sessionId = null) {
   readerProblem = null;
   readerSession = sessionId;
   $("#reader-judge").disabled = true;
+  $("#reader-remote").disabled = true;
   $("#reader-judge-info").textContent = "";
   $("#reader-title").textContent = "正在读取题面…";
   $("#reader-id").textContent = platformName(platform) + " / " + id;
@@ -446,10 +447,11 @@ async function openProblem(platform, id, sessionId = null) {
     $("#reader-source").href = p.url;
     $("#reader-submit").href = p.submit_url;
     readerProblem = p;
+    $("#reader-remote").disabled = false;
     $("#reader-judge").disabled = !p.judge || p.judge.checker === "unsupported";
     $("#reader-judge-info").textContent = p.judge
       ? `${p.judge.case_count} 个存档测试点 · ${p.judge.time_limit_ms / 1000} 秒 / ${p.judge.memory_limit_mb} MiB · ${p.judge.reason}`
-      : "此题暂未保存测试数据。可在“离线评测”页下载存档。";
+      : "此题暂未保存测试数据。可在“评测记录”页下载存档，或提交到原站。";
     $("#reader-error").textContent =
       p.offline === "ready"
         ? ""
@@ -566,12 +568,105 @@ const verdictName = (verdict) =>
     SE: "评测环境 / 数据错误",
     CANCELLED: "已取消",
     INTERRUPTED: "服务重启，评测中断",
+    FAILED: "未能提交",
+    UNKNOWN: "结果待原站核对",
+    PE: "PE · 输出格式错误",
   })[verdict] || verdict;
 let judgeProblem = null,
   judgeSession = null,
   judgeId = null,
   judgeSignature = "",
-  judgePolling = false;
+  judgePolling = false,
+  judgeMode = "local",
+  judgeBusy = false,
+  remoteReady = false,
+  remoteConnection = null,
+  remoteRequestKey = null;
+const remoteLanguages = new Map();
+const languageName = (run) =>
+  run.result.language_name || { cpp17: "C++17", python3: "Python 3" }[run.language] || run.language;
+function judgeEnabled() {
+  return judgeMode === "remote"
+    ? remoteReady &&
+        Boolean(remoteLanguages.get(`${judgeProblem.platform}:${judgeProblem.problem_id}`)?.length)
+    : judgeProblem?.judge && judgeProblem.judge.checker !== "unsupported";
+}
+function setJudgeLanguages() {
+  const select = $("#judge-form").elements.language,
+    previous = select.value;
+  const languages =
+    judgeMode === "remote"
+      ? remoteLanguages.get(`${judgeProblem.platform}:${judgeProblem.problem_id}`) || []
+      : [
+          { id: "cpp17", name: "C++17" },
+          { id: "python3", name: "Python 3" },
+        ];
+  select.innerHTML = languages.length
+    ? languages
+        .map((l) => `<option value="${escapeHtml(l.id)}">${escapeHtml(l.name)}</option>`)
+        .join("")
+    : '<option value="">请先连接原站</option>';
+  if (languages.some((l) => l.id === previous)) select.value = previous;
+  $("#judge-form [type=submit]").disabled = judgeBusy || !judgeEnabled();
+}
+window.addEventListener("message", (event) => {
+  if (
+    event.source !== window ||
+    event.origin !== location.origin ||
+    event.data?.type !== "CP_REMOTE_REPLY"
+  )
+    return;
+  const data = event.data;
+  if (data.ready) {
+    remoteReady = true;
+    $("#remote-connect").disabled = judgeBusy;
+    if (!remoteConnection)
+      $("#remote-status").textContent =
+        judgeProblem && remoteLanguages.has(`${judgeProblem.platform}:${judgeProblem.problem_id}`)
+          ? "助手已连接，可选择语言并提交。"
+          : "助手已就绪。点击连接，读取此题当前支持的语言。";
+  }
+  if (data.connection && data.connection === remoteConnection) {
+    if (data.error) $("#remote-status").textContent = data.error;
+    else if (
+      data.platform === judgeProblem?.platform &&
+      data.problem_id === judgeProblem.problem_id &&
+      Array.isArray(data.languages)
+    ) {
+      const languages = data.languages
+        .filter((l) => /^\d{1,8}$/.test(l.id) && typeof l.name === "string")
+        .slice(0, 500);
+      remoteLanguages.set(`${data.platform}:${data.problem_id}`, languages);
+      $("#remote-status").textContent = languages.length
+        ? `已连接 ${platformName(data.platform)}，请选择编程语言。`
+        : "原站未返回可用语言，请检查原站页面后重试。";
+      setJudgeLanguages();
+    }
+  }
+});
+$("#remote-connect").addEventListener("click", () =>
+  action(async () => {
+    remoteConnection = crypto.randomUUID();
+    const job = await api("/api/remote/prepare", {
+      platform: judgeProblem.platform,
+      problem_id: judgeProblem.problem_id,
+    });
+    $("#remote-status").textContent =
+      "已打开原站。完成登录或验证后，点击原站右下角的“打开交题页”。";
+    window.postMessage(
+      {
+        type: "CP_REMOTE_OPEN",
+        job: {
+          ...job,
+          kind: "prepare",
+          connection: remoteConnection,
+          deadline: Math.floor(Date.now() / 1000) + 900,
+        },
+      },
+      location.origin,
+    );
+  }),
+);
 
 async function loadJudgePage() {
   const [data, runs] = await Promise.all([api("/api/judge/status"), api("/api/judge/runs")]);
@@ -606,8 +701,8 @@ async function loadJudgePage() {
         .join("")
     : '<tr><td colspan="4">尚未下载测试数据，点击上方下载按钮开始。</td></tr>';
   $("#judge-history").innerHTML = runs.items.length
-    ? `<table><thead><tr><th>提交</th><th>题目</th><th>语言</th><th>结果</th><th>通过</th><th>时间</th></tr></thead><tbody>${runs.items.map((r) => `<tr><td><button data-judge-run="${r.id}">#${r.id} 查看</button></td><td>${escapeHtml(r.problem_id)}</td><td>${r.language === "cpp17" ? "C++17" : "Python 3"}</td><td>${verdictName(r.verdict)}</td><td>${r.passed} / ${r.total}</td><td>${dateText(r.submitted_at)}</td></tr>`).join("")}</tbody></table>`
-    : '<p class="subtle">还没有提交。在本地题库勾选“可离线评测”，打开题目后提交代码。</p>';
+    ? `<table><thead><tr><th>提交</th><th>题目</th><th>语言</th><th>结果</th><th>评测方式</th><th>时间</th></tr></thead><tbody>${runs.items.map((r) => `<tr><td><button data-judge-run="${r.id}">#${r.id} 查看</button></td><td>${escapeHtml(r.problem_id)}</td><td>${escapeHtml(languageName(r))}</td><td>${verdictName(r.verdict)}</td><td>${r.engine === "remote" ? platformName(r.platform) : `离线 · ${r.passed} / ${r.total}`}</td><td>${dateText(r.submitted_at)}</td></tr>`).join("")}</tbody></table>`
+    : '<p class="subtle">还没有提交。打开本地题目，选择“提交到原站”或“离线评测”。</p>';
 }
 $("#testdata-sync").addEventListener("click", () =>
   action(async () => {
@@ -629,26 +724,45 @@ $("#testdata-contests").addEventListener("click", (event) => {
     bankPage = 1;
   }
 });
-function showJudge(problem, sessionId = null) {
+function showJudge(problem, sessionId = null, mode = "local") {
   judgeProblem = problem;
   judgeSession = sessionId;
   judgeId = null;
   judgeSignature = "";
-  $("#judge-title").textContent = `离线评测 · ${problem.problem_id}`;
+  judgeMode = mode;
+  judgeBusy = false;
+  remoteConnection = null;
+  remoteRequestKey = crypto.randomUUID();
+  $("#judge-title").textContent =
+    `${mode === "remote" ? "提交到 " + platformName(problem.platform) : "离线评测"} · ${problem.problem_id}`;
   $("#judge-error").textContent = "";
   $("#judge-result").textContent = "";
   $("#judge-cancel").hidden = true;
-  $("#judge-form [type=submit]").disabled =
-    !problem.judge || problem.judge.checker === "unsupported";
+  $("#remote-setup").hidden = mode !== "remote";
+  $("#remote-instructions").open = !remoteReady;
+  $("#remote-connect").disabled = !remoteReady;
+  $("#remote-status").textContent = remoteReady
+    ? "助手已就绪。点击连接，读取此题当前支持的语言。"
+    : "未检测到助手。安装并启用后刷新本页。";
+  $("#judge-form [type=submit]").textContent = mode === "remote" ? "提交到原站" : "提交并评测";
+  $("#judge-cancel").textContent = mode === "remote" ? "停止等待" : "取消评测";
+  setJudgeLanguages();
+  window.postMessage({ type: "CP_REMOTE_HELLO" }, location.origin);
   $("#judge-session-label").hidden = !sessionId;
   $("#judge-form").elements.session.checked = Boolean(sessionId);
-  $("#judge-rules").textContent = problem.judge
-    ? `${problem.judge.case_count} 个测试点；每点 ${problem.judge.time_limit_ms / 1000} 秒 / ${problem.judge.memory_limit_mb} MiB。${problem.judge.reason} 首个失败点后停止。`
-    : "此题没有可用测试数据。";
+  $("#judge-rules").textContent =
+    mode === "remote"
+      ? "代码发送到你在原站登录的账号，结果自动保存到本地。登录失效或验证码需手动完成；停止等待不能撤回原站提交。"
+      : problem.judge
+        ? `${problem.judge.case_count} 个测试点；每点 ${problem.judge.time_limit_ms / 1000} 秒 / ${problem.judge.memory_limit_mb} MiB。${problem.judge.reason} 首个失败点后停止。`
+        : "此题没有可用测试数据。";
   if (!$("#judge-dialog").open) $("#judge-dialog").showModal();
 }
 $("#reader-judge").addEventListener("click", () => {
   if (readerProblem) showJudge(readerProblem, readerSession);
+});
+$("#reader-remote").addEventListener("click", () => {
+  if (readerProblem) showJudge(readerProblem, readerSession, "remote");
 });
 $("#judge-file").addEventListener("change", () =>
   action(async () => {
@@ -656,7 +770,8 @@ $("#judge-file").addEventListener("change", () =>
     if (!file) return;
     if (file.size > 128 * 1024) throw new Error("代码文件超过 128 KiB。");
     $("#judge-source").value = await file.text();
-    $("#judge-form").elements.language.value = /\.py$/i.test(file.name) ? "python3" : "cpp17";
+    if (judgeMode === "local")
+      $("#judge-form").elements.language.value = /\.py$/i.test(file.name) ? "python3" : "cpp17";
   }),
 );
 $("#judge-form").addEventListener("submit", async (event) => {
@@ -666,15 +781,26 @@ $("#judge-form").addEventListener("submit", async (event) => {
   button.disabled = true;
   $("#judge-error").textContent = "";
   try {
-    const run = await api("/api/judge/runs", {
+    const run = await api(judgeMode === "remote" ? "/api/remote/runs" : "/api/judge/runs", {
       platform: judgeProblem.platform,
       problem_id: judgeProblem.problem_id,
       language: form.elements.language.value,
       source: form.elements.source.value,
       session_id: form.elements.session.checked ? judgeSession : null,
+      ...(judgeMode === "remote"
+        ? {
+            request_key: remoteRequestKey || (remoteRequestKey = crypto.randomUUID()),
+            language_name: form.elements.language.selectedOptions[0].textContent,
+          }
+        : {}),
     });
     judgeId = run.id;
     judgeSignature = "";
+    if (judgeMode === "remote")
+      window.postMessage(
+        { type: "CP_REMOTE_OPEN", job: { ...run, kind: "submit", connection: remoteConnection } },
+        location.origin,
+      );
     await pollJudge();
   } catch (error) {
     $("#judge-error").textContent = error.message;
@@ -684,6 +810,11 @@ $("#judge-form").addEventListener("submit", async (event) => {
 $("#judge-cancel").addEventListener("click", () =>
   action(async () => {
     if (judgeId) await api(`/api/judge/runs/${judgeId}/cancel`, {});
+    if (judgeMode === "remote")
+      window.postMessage(
+        { type: "CP_REMOTE_CANCEL", id: judgeId, platform: judgeProblem.platform },
+        location.origin,
+      );
     await pollJudge();
   }),
 );
@@ -693,11 +824,13 @@ function renderJudge(run) {
   judgeSignature = signature;
   const busy = ["QUEUED", "JUDGING"].includes(run.verdict),
     result = run.result;
-  $("#judge-form [type=submit]").disabled =
-    busy || !judgeProblem?.judge || judgeProblem.judge.checker === "unsupported";
+  judgeBusy = busy;
+  if (!busy) remoteRequestKey = null;
+  $("#judge-form [type=submit]").disabled = busy || !judgeEnabled();
+  $("#remote-connect").disabled = busy || !remoteReady;
   $("#judge-cancel").hidden = !busy;
   $("#judge-result").innerHTML =
-    `<h3>${escapeHtml(verdictName(run.verdict))}</h3><p>提交 #${run.id} · 已执行 ${result.cases?.length || 0} / ${run.total} 个测试点，已通过 ${run.passed} 个。</p>${result.message ? `<pre class="judge-message">${escapeHtml(result.message)}</pre>` : ""}${(
+    `<h3>${escapeHtml(verdictName(run.verdict))}</h3><p>提交 #${run.id} · ${run.engine === "remote" ? `${platformName(run.platform)} · ${escapeHtml(languageName(run))}` : `已执行 ${result.cases?.length || 0} / ${run.total} 个测试点，已通过 ${run.passed} 个。`}</p>${result.remote_url ? `<p><a href="${escapeHtml(result.remote_url)}" target="_blank" rel="noreferrer">查看原站提交与结果 ↗</a></p>` : ""}${result.message ? `<pre class="judge-message">${escapeHtml(result.message)}</pre>` : ""}${(
       result.cases || []
     )
       .map(
@@ -733,14 +866,20 @@ $("#judge-history").addEventListener("click", (event) => {
       const problem = await api(
         `/api/problem?platform=${run.platform}&id=${encodeURIComponent(run.problem_id)}`,
       );
-      showJudge(problem);
+      showJudge(problem, null, run.engine);
       $("#judge-source").value = run.source;
+      if (
+        run.engine === "remote" &&
+        ![...$("#judge-form").elements.language.options].some((l) => l.value === run.language)
+      )
+        $("#judge-form").elements.language.add(new Option(languageName(run), run.language));
       $("#judge-form").elements.language.value = run.language;
       judgeId = run.id;
       renderJudge(run);
     });
 });
 setInterval(() => action(pollJudge), 1000);
+window.postMessage({ type: "CP_REMOTE_HELLO" }, location.origin);
 
 function navigate() {
   const view = ["bank", "judge"].includes(location.hash.slice(1))

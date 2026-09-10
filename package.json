@@ -1,12 +1,12 @@
 {
   "name": "@apps/cp-trainer",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "python3 -m cptrainer.web",
     "dev": "python3 -m cptrainer.web --open",
-    "check": "python3 -m compileall -q cptrainer tests scripts && node --check cptrainer/static/app.js",
+    "check": "python3 -m compileall -q cptrainer tests scripts && node --check cptrainer/static/app.js && node --check cptrainer/static/cp-trainer.user.js",
     "test": "python3 -m unittest discover -s tests -v",
     "test:ui": "playwright test",
     "build": "python3 scripts/build.py"

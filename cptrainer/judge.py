@@ -119,6 +119,7 @@ def container_run(image: str, work: Path, command: list[str], *, wall_seconds: f
 
 def run_payload(row, *, source=False) -> dict:
     result = dict(row)
+    result.pop("request_key", None)
     if not source:
         result.pop("source", None)
     result["result"] = json.loads(result.pop("result_json"))
@@ -138,7 +139,7 @@ class Judge:
         db = Database(paths.database)
         try:
             with db.conn:
-                db.conn.execute("UPDATE judge_runs SET verdict='INTERRUPTED',finished_at=? WHERE verdict IN ('QUEUED','JUDGING')", (int(time.time()),))
+                db.conn.execute("UPDATE judge_runs SET verdict='INTERRUPTED',finished_at=? WHERE engine='local' AND verdict IN ('QUEUED','JUDGING')", (int(time.time()),))
         finally:
             db.close()
         if self.runtime["available"]:
@@ -160,14 +161,7 @@ class Judge:
         if row["checker"] == "unsupported":
             raise ValueError(row["reason"])
         sid = data.get("session_id")
-        if sid is not None:
-            if isinstance(sid, bool) or not isinstance(sid, int):
-                raise ValueError("比赛编号无效")
-            session = db.get_session(sid)
-            if session["status"] != "running" or session_ended(session):
-                raise ValueError("本场比赛尚未开始或已结束；可不关联比赛进行补题")
-            if not db.conn.execute("SELECT 1 FROM session_problems WHERE session_id=? AND platform=? AND problem_id=?", (sid, platform, pid)).fetchone():
-                raise ValueError("这道题不在所选比赛中")
+        validate_session(db, sid, platform, pid)
         if self.jobs.full():
             raise ValueError("评测队列已满，请稍后提交")
         with db.conn:
@@ -233,7 +227,7 @@ class Judge:
                     wall_seconds=30, memory_mb=1024, owner=self.owner, cancel=self.cancel, compile_code=True)
                 if compiled["verdict"] != "OK":
                     result["message"] = compiled["stderr"] or "编译未完成（时间、内存或输出超限）"
-                    self._finish(db, run, "CANCELLED" if compiled["verdict"] == "CANCELLED" else "SE" if compiled["verdict"] == "SE" else "CE", 0, result)
+                    finish_run(db, run, "CANCELLED" if compiled["verdict"] == "CANCELLED" else "SE" if compiled["verdict"] == "SE" else "CE", 0, result)
                     return
                 executable = work / "main"
                 if not executable.is_file() or executable.is_symlink():
@@ -244,7 +238,7 @@ class Judge:
                     wall_seconds=5, memory_mb=256, owner=self.owner, cancel=self.cancel)
                 if compiled["verdict"] != "OK":
                     result["message"] = compiled["stderr"]
-                    self._finish(db, run, "CANCELLED" if compiled["verdict"] == "CANCELLED" else "SE" if compiled["verdict"] == "SE" else "CE", 0, result)
+                    finish_run(db, run, "CANCELLED" if compiled["verdict"] == "CANCELLED" else "SE" if compiled["verdict"] == "SE" else "CE", 0, result)
                     return
             verdict, passed = "AC", 0
             for case in cases:
@@ -287,18 +281,32 @@ class Judge:
                 # Stop at the first failing case; never call a partial pass AC.
                 if current != "AC":
                     break
-            self._finish(db, run, verdict, passed, result)
+            finish_run(db, run, verdict, passed, result)
 
-    def _finish(self, db: Database, run, verdict: str, passed: int, result: dict):
-        with db.conn:
-            db.conn.execute("UPDATE judge_runs SET verdict=?,passed=?,finished_at=?,result_json=? WHERE id=?",
-                (verdict, passed, int(time.time()), json.dumps(result), run["id"]))
-            if run["session_id"] is not None and verdict in {"AC", "WA", "TLE", "MLE", "RE", "OLE"}:
-                session = db.get_session(run["session_id"])
-                if session["status"] == "running" and session["started_at"] <= run["submitted_at"] < session["started_at"] + session["duration_minutes"] * 60:
-                    if verdict == "AC":
-                        db.conn.execute("UPDATE session_problems SET solved=1,elapsed_seconds=? WHERE session_id=? AND platform=? AND problem_id=? AND solved=0",
-                            (run["submitted_at"] - session["started_at"], run["session_id"], run["platform"], run["problem_id"]))
-                    else:
-                        db.conn.execute("UPDATE session_problems SET wrong_attempts=wrong_attempts+1 WHERE session_id=? AND platform=? AND problem_id=? AND solved=0",
-                            (run["session_id"], run["platform"], run["problem_id"]))
+
+def finish_run(db: Database, run, verdict: str, passed: int, result: dict):
+    with db.conn:
+        changed = db.conn.execute("UPDATE judge_runs SET verdict=?,passed=?,finished_at=?,result_json=? WHERE id=? AND finished_at IS NULL",
+            (verdict, passed, int(time.time()), json.dumps(result), run["id"])).rowcount
+        if not changed:
+            return
+        if run["session_id"] is not None and verdict in {"AC", "WA", "TLE", "MLE", "RE", "OLE", "PE"}:
+            session = db.get_session(run["session_id"])
+            if session["status"] == "running" and session["started_at"] <= run["submitted_at"] < session["started_at"] + session["duration_minutes"] * 60:
+                if verdict == "AC":
+                    db.conn.execute("UPDATE session_problems SET solved=1,elapsed_seconds=? WHERE session_id=? AND platform=? AND problem_id=? AND solved=0",
+                        (run["submitted_at"] - session["started_at"], run["session_id"], run["platform"], run["problem_id"]))
+                else:
+                    db.conn.execute("UPDATE session_problems SET wrong_attempts=wrong_attempts+1 WHERE session_id=? AND platform=? AND problem_id=? AND solved=0",
+                        (run["session_id"], run["platform"], run["problem_id"]))
+
+
+def validate_session(db: Database, sid, platform: str, pid: str):
+    if sid is not None:
+        if isinstance(sid, bool) or not isinstance(sid, int):
+            raise ValueError("比赛编号无效")
+        session = db.get_session(sid)
+        if session["status"] != "running" or session_ended(session):
+            raise ValueError("本场比赛尚未开始或已结束；可不关联比赛进行补题")
+        if not db.conn.execute("SELECT 1 FROM session_problems WHERE session_id=? AND platform=? AND problem_id=?", (sid, platform, pid)).fetchone():
+            raise ValueError("这道题不在所选比赛中")

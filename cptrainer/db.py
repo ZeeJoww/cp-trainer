@@ -137,7 +137,7 @@ class Database:
 
     def migrate(self) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if version > 2:
+        if version > 3:
             raise ValueError("数据库版本高于此程序，请使用新版 cp-trainer。")
         if version == 0 and self.path.stat().st_size:
             self.backup("before-v1")
@@ -185,6 +185,18 @@ class Database:
                 );
                 CREATE INDEX idx_judge_runs_problem ON judge_runs(platform, problem_id, id);
                 PRAGMA user_version = 2;
+                COMMIT;
+            """)
+
+        if version < 3:
+            if version == 2:
+                self.backup("before-v3")
+            self.conn.executescript("""
+                BEGIN;
+                ALTER TABLE judge_runs ADD COLUMN engine TEXT NOT NULL DEFAULT 'local';
+                ALTER TABLE judge_runs ADD COLUMN request_key TEXT;
+                CREATE UNIQUE INDEX idx_judge_request_key ON judge_runs(request_key);
+                PRAGMA user_version = 3;
                 COMMIT;
             """)
 

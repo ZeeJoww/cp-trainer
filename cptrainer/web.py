@@ -23,14 +23,10 @@ from .planner import _point_profile, create_training_contest, finish_session
 from .sources import sync_atcoder, sync_codeforces
 from .testdata import sync_testdata, testdata_status
 from .judge import Judge, run_payload, runtime_status
+from . import remote
+from .remote import submit_url
 
 STATIC = Path(__file__).parent / "static"
-
-
-def submit_url(problem) -> str:
-    if problem["platform"] == "cf":
-        return f"https://codeforces.com/contest/{problem['contest_id']}/submit?problemIndex={problem['problem_index']}"
-    return f"https://atcoder.jp/contests/{problem['contest_id']}/submit?taskScreenName={problem['problem_id']}"
 
 
 def integer(value, low: int, high: int, name: str) -> int:
@@ -102,6 +98,7 @@ class TrainerServer(HTTPServer):
             return
         self.last_tick = time.monotonic()
         with self.database() as db, db.conn:
+            remote.expire_runs(db)
             db.conn.execute("""UPDATE sessions SET status='running',started_at=scheduled_at
                 WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at<=?""", (int(time.time()),))
 
@@ -147,13 +144,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def check_origin(self):
+    def check_origin(self, bridge=False):
         port = self.server.server_port
         hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         if self.headers.get("Host") not in hosts:
             raise PermissionError("Host 不被允许")
         origin = self.headers.get("Origin")
-        if origin is not None and origin not in {"http://" + host for host in hosts}:
+        if not bridge and origin is not None and origin not in {"http://" + host for host in hosts}:
             raise PermissionError("仅接受此应用页面的请求")
 
     def do_GET(self):
@@ -164,22 +161,23 @@ class Handler(BaseHTTPRequestHandler):
 
     def dispatch(self, mutation):
         try:
-            self.check_origin()
             url = urlsplit(self.path)
+            bridge = mutation and re.fullmatch(r"/api/remote/runs/(\d+)/event", url.path)
+            self.check_origin(bridge=bool(bridge))
             query = {key: values[-1] for key, values in parse_qs(url.query).items()}
             if mutation:
-                if self.headers.get("X-CP-Trainer") != self.server.token:
+                if not bridge and self.headers.get("X-CP-Trainer") != self.server.token:
                     raise PermissionError("页面已过期，请刷新后重试。")
                 if self.headers.get_content_type() != "application/json":
                     raise ValueError("请求应为 JSON")
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= (800000 if url.path == "/api/judge/runs" else 32768):
+                if not 0 < length <= (800000 if url.path in {"/api/judge/runs", "/api/remote/runs"} else 32768):
                     raise ValueError("请求大小超出限制")
                 data = json.loads(self.rfile.read(length))
                 if not isinstance(data, dict):
                     raise ValueError("请求应为对象")
                 with self.server.database() as db:
-                    result = self.mutate(db, url.path, data)
+                    result = remote.event(db, int(bridge[1]), self.headers.get("X-CP-Remote", ""), data) if bridge else self.mutate(db, url.path, data)
                 self.reply(result)
             elif url.path.startswith("/api/"):
                 with self.server.database() as db:
@@ -224,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
             return testdata_status(db) | {"running": running, "sync": self.server.testdata_info, "runtime": self.server.judge.runtime}
         if path == "/api/judge/runs":
             if query.get("problem_id"):
-                rows = db.conn.execute("SELECT * FROM judge_runs WHERE platform='atcoder' AND problem_id=? ORDER BY id DESC LIMIT 30", (query["problem_id"],))
+                rows = db.conn.execute("SELECT * FROM judge_runs WHERE platform=? AND problem_id=? ORDER BY id DESC LIMIT 30", (query.get("platform", "atcoder"), query["problem_id"]))
             else:
                 rows = db.conn.execute("SELECT * FROM judge_runs ORDER BY id DESC LIMIT 50")
             return {"items": [run_payload(row) for row in rows]}
@@ -281,6 +279,10 @@ class Handler(BaseHTTPRequestHandler):
         raise KeyError("接口不存在")
 
     def mutate(self, db, path, data):
+        if path == "/api/remote/prepare":
+            return remote.problem_payload(db, data.get("platform"), data.get("problem_id"))
+        if path == "/api/remote/runs":
+            return remote.create_run(db, data)
         if path == "/api/testdata/sync":
             self.server.start_testdata()
             return {"ok": True}
@@ -291,7 +293,12 @@ class Handler(BaseHTTPRequestHandler):
             return {"id": self.server.judge.submit(db, data)}
         match = re.fullmatch(r"/api/judge/runs/(\d+)/cancel", path)
         if match:
-            self.server.judge.cancel_run(int(match[1]), db)
+            run_id = int(match[1])
+            row = db.conn.execute("SELECT engine FROM judge_runs WHERE id=?", (run_id,)).fetchone()
+            if row and row["engine"] == "remote":
+                remote.stop_waiting(db, run_id)
+            else:
+                self.server.judge.cancel_run(run_id, db)
             return {"ok": True}
         if path == "/api/sync":
             self.server.start_sync()

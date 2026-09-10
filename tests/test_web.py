@@ -221,7 +221,7 @@ class ArchiveTests(unittest.TestCase):
                 conn.executescript(SCHEMA)
             db = Database(path)
             db.migrate(); db.migrate()
-            self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(db.conn.execute("PRAGMA user_version").fetchone()[0], 3)
             self.assertEqual(len(list((path.parent / "backups").glob("*.sqlite3"))), 1)
             db.close()
 

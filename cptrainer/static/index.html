@@ -24,7 +24,7 @@
       <nav aria-label="主导航">
         <a href="#contests" data-nav="contests" aria-current="page">比赛</a>
         <a href="#bank" data-nav="bank">本地题库</a>
-        <a href="#judge" data-nav="judge">离线评测</a>
+        <a href="#judge" data-nav="judge">评测记录</a>
       </nav>
       <div class="top-actions">
         <button id="profile-open" class="quiet">训练分</button
@@ -129,8 +129,8 @@
         <div class="page-heading">
           <div>
             <p class="eyebrow">RUN, CHECK, IMPROVE</p>
-            <h1>离线评测</h1>
-            <p class="subtle">在题库打开一道题，提交代码，在本机运行存档测试数据。</p>
+            <h1>评测记录</h1>
+            <p class="subtle">在本地题面提交到原站，或使用已下载的测试数据离线评测。</p>
           </div>
           <button id="testdata-sync" class="primary">下载最近 100 场 / 续传</button>
         </div>
@@ -167,7 +167,7 @@
           </div>
         </details>
         <p class="footnote">
-          本地结果基于下载到的测试数据。构造题、交互题等缺少专用判题器时不可评测；本机速度与官方环境不同，结果不等同于官方提交。
+          离线评测基于下载到的测试数据。构造题、交互题等缺少专用判题器时不可评测；本机速度与官方环境不同，结果不等同于官方提交。
         </p>
       </section>
     </main>
@@ -226,7 +226,8 @@
             <option value="ja">日本語</option>
           </select></label
         ><a id="reader-source" target="_blank" rel="noreferrer">原题 ↗</a
-        ><a id="reader-submit" target="_blank" rel="noreferrer">在线交题 ↗</a>
+        ><a id="reader-submit" target="_blank" rel="noreferrer">原站交题页 ↗</a>
+        <button id="reader-remote" class="primary" disabled>提交到原站</button>
         <button id="reader-judge" class="primary" disabled>离线评测</button>
       </div>
       <p id="reader-judge-info" class="subtle"></p>
@@ -242,15 +243,31 @@
         <button class="close" data-close aria-label="关闭评测">×</button>
       </div>
       <form id="judge-form">
+        <div id="remote-setup" hidden>
+          <details id="remote-instructions">
+            <summary>首次配置浏览器助手</summary>
+            <p>
+              首次使用：安装
+              <a href="https://www.tampermonkey.net/" target="_blank" rel="noreferrer"
+                >Tampermonkey</a
+              >，再安装
+              <a href="/cp-trainer.user.js" target="_blank">CP Trainer 提交助手</a
+              >，刷新本页。浏览器若提示，请允许此助手运行及访问本机服务。
+            </p>
+            <p>
+              连接原站后，在新标签页登录自己的账号；返回这里选择语言并提交。评测期间保持原站标签页打开。
+            </p>
+          </details>
+          <button id="remote-connect" type="button">连接原站 / 更新语言</button>
+          <p id="remote-status" class="subtle" role="status"></p>
+        </div>
         <div class="form-grid">
           <label
             >编程语言<select name="language">
               <option value="cpp17">C++17</option>
               <option value="python3">Python 3</option>
             </select></label
-          ><label
-            >从文件读取代码<input id="judge-file" type="file" accept=".cpp,.cc,.cxx,.py,.txt"
-          /></label>
+          ><label>从文件读取代码<input id="judge-file" type="file" /></label>
         </div>
         <label
           >代码<textarea
