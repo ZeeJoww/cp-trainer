@@ -1,4 +1,4 @@
-# CP Trainer 0.4.0
+# CP Trainer 0.4.1
 
 基于 `cp-trainer-local-v0.1.zip` 的本地 Web 竞赛训练工具。复用 Python / SQLite 组题与评分逻辑，提供明暗主题、预约 / 立即开始、赛后按需显示标签、本地题库、离线组题、AtCoder 离线评测和原站提交。
 
@@ -55,9 +55,11 @@ python3 -m cptrainer.archive --platform atcoder --statements-only
 
 若数据目录还未初始化，先运行 `python3 -m cptrainer init --timezone Asia/Shanghai`。每道题单独提交保存，已完成题面不会重复下载；单平台原生文件锁防止 CLI 和网页重复同步。未下载或缺图题目不会进入自动离线组题。
 
-范围按 UTC 的原比赛开始时间筛选，截止同步执行时刻：Codeforces 自 **2024-07-01** 起，AtCoder 自 **2023-07-03** 起。Codeforces 使用官方公共 `problemset.problems` 题库（含其中的 ICPC 镜像），不涵盖不在该接口内的 Gym、私有组题和未公开题。AtCoder 使用 AtCoder Problems 的公开题目及比赛关联表；每日练习复用旧题不改变原始发布日期或题号。
+同步范围按 UTC 的原比赛开始时间筛选：Codeforces 自 **2023-07-01** 起，AtCoder 自 **2022-07-03** 起。Codeforces 使用官方公共 `problemset.problems` 题库（含其中的 ICPC 镜像），不涵盖不在该接口内的 Gym、私有组题和未公开题。AtCoder 使用 AtCoder Problems 的公开题目及比赛关联表；每日练习复用旧题不改变原始发布日期或题号。
 
-2026-09-10 核对结果：CF **1,752 / 1,752** 题离线就绪；AtCoder 原日期范围内 **3,321 / 3,322** 题离线就绪，另为测试数据清单补入 28 道较早题目，合计 **3,349 / 3,350** 题。AtCoder `awc0108_d` 的原题地址返回 HTTP 404，已保留元数据和失败状态，可再次同步重试，未以其他题目或演示内容替代。上游尚未公开难度的题目显示“暂无估分”；AtCoder 估分按 AtCoder Problems 的低分变换与取整规则保存。
+2026-09-27 已将两平台起始日期各向前扩展一年，净新增 **1,619 道旧题题面**。Codeforces **2,621 / 2,621** 题离线就绪，本次新增 869 道旧题；AtCoder **4,193 / 4,195** 题离线就绪；新增旧年份范围共 779 题，其中 28 题此前已为评测存档保存，本次净增 750 道旧题题面，另同步 94 道近期题面。`awc0108_d` 和 `asprocon9_a` 原题地址返回 HTTP 404；后者的[比赛公告](https://atcoder.jp/contests/asprocon9?lang=en)明确题面赛后仅对已报名者开放。保留元数据和失败状态，未以其他题目或演示内容替代。上游尚未公开难度的题目显示“暂无估分”；AtCoder 估分按 AtCoder Problems 的低分变换与取整规则保存。
+
+CF 本次官方 API 返回 504，历史题单沿用 2026-09-10 已保存的官方快照，按新增日期区间补入题目；题面从原站取得，未声称 CF 当前题单已更新至 9 月 27 日。AtCoder 元数据已于 9 月 27 日刷新。范围扩展前已创建 SQLite 一致性备份，原有就绪题面和 100 场测试数据保留。
 
 ## 本地看题与原站提交
 
@@ -125,9 +127,9 @@ pnpm --filter @apps/cp-trainer test:ui
 pnpm --filter @apps/cp-trainer build
 ```
 
-不安装 Node 也可运行应用和 Python 测试：`python3 -m unittest discover -s tests -v`。Node / Playwright 仅用于开发验证，便携包位于 `dist/cp-trainer-0.4.0.zip`，不含用户数据。
+不安装 Node 也可运行应用和 Python 测试：`python3 -m unittest discover -s tests -v`。Node / Playwright 仅用于开发验证，便携包位于 `dist/cp-trainer-0.4.1.zip`，不含用户数据。
 
-本次在 Ubuntu 24.04 x64、Python 3.12.3、Chromium 验证；32 项 Python 检查和 6 项浏览器流程覆盖日期归属校正、增量续传、数据库迁移与备份恢复、原子结算、接口边界、预约 / 开始、赛后标签、离线公式、手动组题和 320px 布局。Windows / macOS 与其他浏览器待实机验证；三系统 CI 配置已保留，尚未在远端执行。
+本次在 Ubuntu 24.04 x64、Python 3.12.3、Chromium 验证；32 项 Python 检查中 31 项通过，1 项 Docker 检查因未设置测试镜像而跳过。归档修改后相关 9 项检查通过，覆盖日期边界、故障续传和旧题 SVG；2 项浏览器回归及真实旧题的局域网 HTTP / 禁止外网资源阅读检查通过。原有完整评测与原站助手验证见 0.4.0 交付记录，本次未重跑容器评测。Windows / macOS 与其他浏览器待实机验证；三系统 CI 配置已保留，尚未在远端执行。
 
 完整迁移时，先停止服务，再复制整个数据目录；恢复前另存当前目录，以备回退。只复制运行中的 SQLite 主文件不能保证一致性。恢复 `backups/` 中的数据库时，同目录 `assets/` 保持配套，并在停止服务后处理原数据库和 WAL / SHM 文件。
 

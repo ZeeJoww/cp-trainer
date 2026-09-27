@@ -1,6 +1,7 @@
 """Synthetic, isolated checks for the archive and Web contest lifecycle."""
 from pathlib import Path
 from contextlib import closing
+from datetime import datetime, timezone
 import json
 import os
 import sqlite3
@@ -167,6 +168,12 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual("".join(sanitizer.parts).count('/assets/'), 2)
             self.assertEqual(len(list((paths.home / "assets").iterdir())), 2)
             self.assertNotIn("onload", next((paths.home / "assets").glob("*.svg")).read_text())
+            sanitizer.feed('<svg xmlns="http://www.w3.org/2000/svg"><symbol id="shape"><circle r="4"/></symbol><use xlink:href="#shape" ,=""/></svg>')
+            self.assertEqual(sanitizer.errors, [])
+            svg = next(p.read_text() for p in (paths.home / "assets").glob("*.svg") if "shape" in p.read_text())
+            self.assertIn('href="#shape"', svg)
+            sanitizer.feed('<svg xmlns="http://www.w3.org/2000/svg"><use xlink:href="https://example.com/external.svg"/></svg>')
+            self.assertEqual(len(sanitizer.errors), 1)
             with archive_lock(paths, "cf"):
                 with self.assertRaises(ValueError):
                     with archive_lock(paths, "cf"):
@@ -187,6 +194,11 @@ class ArchiveTests(unittest.TestCase):
         self.assertIn("<var>x^2</var>", clean)
 
     def test_canonical_dates_and_difficulty(self):
+        for platform, date, field in [("cf", "2023-07-01", "startTimeSeconds"), ("atcoder", "2022-07-03", "start_epoch_second")]:
+            boundary = int(datetime.fromisoformat(date).replace(tzinfo=timezone.utc).timestamp())
+            problem = Problem(platform, "boundary", "contest", "A", "date check", 1, 1, (), "https://example.com")
+            self.assertEqual(dated_problems([problem], [{"id": "contest", field: boundary - 1}], platform), [])
+            self.assertEqual(dated_problems([problem], [{"id": "contest", field: boundary}], platform)[0].published_at, boundary)
         contests = [{"id": "abc350", "start_epoch_second": 1710000000}, {"id": "adt", "start_epoch_second": 1750000000}]
         problem = Problem("atcoder", "abc350_a", "adt", "C", "x", 1, 1, (), "x")
         pairs = [{"problem_id": "abc350_a", "contest_id": "adt", "problem_index": "C"}, {"problem_id": "abc350_a", "contest_id": "abc350", "problem_index": "A"}]
@@ -204,6 +216,10 @@ class ArchiveTests(unittest.TestCase):
             db = Database(paths.database)
             with db.conn:
                 db.conn.execute("DELETE FROM statements WHERE platform='cf' AND problem_id='2000A'")
+            for error in [HTTPError("https://codeforces.com", 504, "timeout", {}, None), TimeoutError("network unavailable")]:
+                with patch("cptrainer.archive.Downloader.fetch", side_effect=error) as fetch:
+                    archive_statements(db, paths, "cf", lambda _: None)
+                    self.assertEqual(fetch.call_count, 1)
             with patch("cptrainer.archive.Downloader.fetch", side_effect=OSError("interrupted")):
                 archive_statements(db, paths, "cf", lambda _: None)
             self.assertEqual(db.conn.execute("SELECT status FROM statements WHERE problem_id='2000A'").fetchone()[0], "failed")

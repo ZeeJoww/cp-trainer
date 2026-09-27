@@ -188,7 +188,11 @@ class Sanitize(HTMLParser):
             try:
                 if not self.downloader:
                     raise ValueError("内嵌图形尚未保存")
-                root = ET.fromstring(match[0])
+                # ponytail: repair empty comma attributes in archived HTML SVG;
+                # use an HTML SVG parser if further malformed syntax appears.
+                svg = re.sub(r"\s+,=([\"'])\1", "", match[0])
+                svg = re.sub(r"\s+xlink:href=", " href=", svg)  # SVG 2 href needs no xlink declaration.
+                root = ET.fromstring(svg)
                 for node in root.iter():
                     if node.tag.split("}")[-1] in {"script", "foreignObject", "image", "a"}:
                         raise ValueError("内嵌图形含外部或活动内容")
@@ -286,6 +290,7 @@ def archive_statements(db: Database, paths: Paths, platform: str, progress=print
         groups = dict(list(groups.items())[:limit])
     for number, (contest, items) in enumerate(groups.items(), 1):
         url = f"https://codeforces.com/contest/{contest}/problems?locale=en" if platform == "cf" else f"https://atcoder.jp/contests/{contest}/tasks_print?lang=en"
+        unavailable = False
         try:
             raw, _ = downloader.fetch(url)
             blocks = extract_statements(raw.decode("utf-8"), platform)
@@ -293,11 +298,13 @@ def archive_statements(db: Database, paths: Paths, platform: str, progress=print
         except Exception as exc:
             blocks = {}
             batch_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+            # A network outage must not trigger the same retries for every task.
+            unavailable = isinstance(exc, (URLError, TimeoutError)) and (not isinstance(exc, HTTPError) or exc.code in {403, 429, 500, 502, 503, 504})
         for item in items:
             error = batch_error
             html = ""
             block = blocks.get(item["problem_index"])
-            if not block:
+            if not block and not unavailable:
                 try:
                     raw, _ = downloader.fetch(item["url"])
                     if raw.startswith(b"%PDF-"):

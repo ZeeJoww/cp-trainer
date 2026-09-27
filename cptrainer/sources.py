@@ -16,7 +16,7 @@ from .types import Problem, Submission
 CF_API = "https://codeforces.com/api"
 ATCODER_RESOURCES = "https://kenkoooo.com/atcoder/resources"
 ATCODER_API = "https://kenkoooo.com/atcoder/atcoder-api/v3"
-SINCE = {"cf": "2024-07-01", "atcoder": "2023-07-03"}
+SINCE = {"cf": "2023-07-01", "atcoder": "2022-07-03"}
 
 
 def dated_problems(problems: list[Problem], contests: list[dict], platform: str) -> list[Problem]:
