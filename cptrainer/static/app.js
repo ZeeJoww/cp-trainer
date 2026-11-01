@@ -1,4 +1,17 @@
 "use strict";
+function newId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join("-");
+}
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value) =>
   String(value ?? "").replace(
@@ -646,7 +659,7 @@ window.addEventListener("message", (event) => {
 });
 $("#remote-connect").addEventListener("click", () =>
   action(async () => {
-    remoteConnection = crypto.randomUUID();
+    remoteConnection = newId();
     const job = await api("/api/remote/prepare", {
       platform: judgeProblem.platform,
       problem_id: judgeProblem.problem_id,
@@ -732,7 +745,7 @@ function showJudge(problem, sessionId = null, mode = "local") {
   judgeMode = mode;
   judgeBusy = false;
   remoteConnection = null;
-  remoteRequestKey = crypto.randomUUID();
+  remoteRequestKey = newId();
   $("#judge-title").textContent =
     `${mode === "remote" ? "提交到 " + platformName(problem.platform) : "离线评测"} · ${problem.problem_id}`;
   $("#judge-error").textContent = "";
@@ -789,7 +802,7 @@ $("#judge-form").addEventListener("submit", async (event) => {
       session_id: form.elements.session.checked ? judgeSession : null,
       ...(judgeMode === "remote"
         ? {
-            request_key: remoteRequestKey || (remoteRequestKey = crypto.randomUUID()),
+            request_key: remoteRequestKey || (remoteRequestKey = newId()),
             language_name: form.elements.language.selectedOptions[0].textContent,
           }
         : {}),

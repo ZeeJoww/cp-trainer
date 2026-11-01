@@ -1,0 +1,60 @@
+name: CP Trainer
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  python:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - if: runner.os == 'Windows'
+        run: python -m pip install tzdata==2026.3
+      - run: python -m compileall -q cptrainer tests scripts
+      - run: node --check cptrainer/static/app.js
+      - run: node --check cptrainer/static/cp-trainer.user.js
+      - run: python -m unittest discover -s tests -v
+      - run: python scripts/build.py
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11.22.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:ui
+  judge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "11.22.0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python3 scripts/setup_judge.py
+      - run: python3 -c "import json,os,pathlib;image=json.loads((pathlib.Path.home()/'.cp-trainer/judge-runtime.json').read_text())['image'];open(os.environ['GITHUB_ENV'],'a').write('CP_TRAINER_JUDGE_TEST_IMAGE='+image+'\n')"
+      - run: python3 -m unittest discover -s tests -v
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:ui

@@ -12,3 +12,20 @@ playwright-report/
 data/
 cache/
 backups/
+
+# Local credentials and application state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+.cp-trainer/
+assets/
+testdata/
+judge-runs/

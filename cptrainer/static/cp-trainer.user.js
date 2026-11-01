@@ -5,6 +5,7 @@
 // @description  从本机 CP Trainer 提交到自己的 AtCoder / Codeforces 账号并回传结果。
 // @match        http://127.0.0.1/*
 // @match        http://localhost/*
+// @match        http://*/*
 // @match        https://atcoder.jp/*
 // @match        https://codeforces.com/*
 // @grant        GM_getValue
@@ -16,6 +17,7 @@
 // @grant        unsafeWindow
 // @connect      127.0.0.1
 // @connect      localhost
+// @connect      *
 // @run-at       document-end
 // @noframes
 // ==/UserScript==
@@ -23,7 +25,23 @@
 (async () => {
   "use strict";
   const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const local = ["127.0.0.1", "localhost"].includes(location.hostname);
+  const localHost = (host) => {
+    if (host === "localhost") return true;
+    const parts = host.split(".");
+    if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255))
+      return false;
+    const [a, b] = parts.map(Number);
+    return (
+      a === 127 ||
+      a === 10 ||
+      (a === 192 && b === 168) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254)
+    );
+  };
+  const local = localHost(location.hostname);
+  if (!local && !["atcoder.jp", "codeforces.com"].includes(location.hostname)) return;
   const reply = (data) => window.postMessage({ type: "CP_REMOTE_REPLY", ...data }, location.origin);
   const keyFor = (platform) => `cp-trainer-active-${platform}`;
   function valid(job) {
@@ -45,7 +63,7 @@
       url.host === host &&
       url.pathname === path &&
       origin.protocol === "http:" &&
-      ["127.0.0.1", "localhost"].includes(origin.hostname) &&
+      localHost(origin.hostname) &&
       origin.origin === job.origin &&
       /^[\w-]+$/.test(job.contest_id) &&
       /^[\w-]+$/.test(job.problem_id) &&

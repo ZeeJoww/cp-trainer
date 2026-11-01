@@ -4,15 +4,19 @@
 
 ## 打开应用
 
-已部署的本机入口：<http://127.0.0.1:8765/>。
+公开源码：<https://github.com/ZeeJoww/cp-trainer>。启动后的本机入口：<http://127.0.0.1:8765/>。
 
-从本目录启动（Python 3.11+，无需 pip 安装）：
+首次启动题库为空，需联网同步；仓库不包含个人题库、提交记录、测试存档或容器镜像。下文下载数量为开发机器在相应日期的核对记录。
+
+克隆并启动（Python 3.11+，无需 pip 安装）：
 
 ```sh
+git clone https://github.com/ZeeJoww/cp-trainer.git
+cd cp-trainer
 python3 -m cptrainer.web --open
 ```
 
-Windows 将 `python3` 换成 `python`。应用只监听本机回环地址。可用 `--port 8766` 更改端口，或 `--home /path/to/state` 指定数据目录。Linux 当前用户服务安装命令：
+Windows 将 `python3` 换成 `python`。应用默认监听 `0.0.0.0:8765`，局域网设备打开 `http://<服务电脑 IP>:8765/`；仅本机使用可附加 `--host 127.0.0.1`。所有访问设备共用这台电脑的训练数据库，沿用同源和操作令牌校验。可用 `--port 8766` 更改端口，或 `--home /path/to/state` 指定数据目录。Linux 当前用户服务安装命令：
 
 ```sh
 python3 scripts/install_service.py
@@ -62,6 +66,8 @@ python3 -m cptrainer.archive --platform atcoder --statements-only
 CF 本次官方 API 返回 504，历史题单沿用 2026-09-10 已保存的官方快照，按新增日期区间补入题目；题面从原站取得，未声称 CF 当前题单已更新至 9 月 27 日。AtCoder 元数据已于 9 月 27 日刷新。范围扩展前已创建 SQLite 一致性备份，原有就绪题面和 100 场测试数据保留。
 
 ## 本地看题与原站提交
+
+局域网访问时需重新安装当前版本的浏览器助手。脚本支持局域网 IPv4 与 Tailscale IPv4，并在运行时限制来源和回传目标；浏览器扩展可能要求允许连接服务电脑的 IP。登录、验证码和真实提交仍在使用者自己的浏览器完成。
 
 在本地题面点击 **提交到原站**，可用自己的 AtCoder / Codeforces 账号提交代码，原站结果和代码自动保存到本机，并可计入当前比赛。联网评测使用原站的完整测试数据和语言环境，不受本地测试存档范围限制。
 
@@ -121,10 +127,12 @@ docker load -i cp-trainer-judge.tar
 ## 维护与验证
 
 ```sh
-pnpm --filter @apps/cp-trainer check
-pnpm --filter @apps/cp-trainer test
-pnpm --filter @apps/cp-trainer test:ui
-pnpm --filter @apps/cp-trainer build
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm check
+pnpm test
+pnpm test:ui
+pnpm build
 ```
 
 不安装 Node 也可运行应用和 Python 测试：`python3 -m unittest discover -s tests -v`。Node / Playwright 仅用于开发验证，便携包位于 `dist/cp-trainer-0.4.1.zip`，不含用户数据。
@@ -137,7 +145,7 @@ pnpm --filter @apps/cp-trainer build
 
 - [conlacda/atcoder-testcases](https://github.com/conlacda/atcoder-testcases)：分支中的 MIT 许可随原始测试文件保留；不执行存档中的脚本。
 
-- 原项目包：`~/Downloads/cp-trainer-local-v0.1.zip`，保留 MIT 许可；演示题仅用于隔离测试，生产 CLI 的 `demo` 入口已移除。
+- 原项目包：`cp-trainer-local-v0.1.zip`，保留 MIT 许可；演示题仅用于隔离测试，生产 CLI 的 `demo` 入口已移除。
 - [Codeforces API](https://codeforces.com/apiHelp)：公共题库及比赛日期，API 请求至少间隔 2.05 秒。
 - [AtCoder Problems 数据接口](https://github.com/kenkoooo/AtCoderProblems/blob/main/doc/api.md)：公开元数据及估计难度，请求至少间隔 1.10 秒；题面来自 AtCoder 原站。
 - [AtCoder Problems 难度规则](https://github.com/kenkoooo/AtCoderProblems/blob/main/atcoder-problems-frontend/src/utils/index.ts)；[ADT 覆盖题目归属问题](https://github.com/kenkoooo/AtCoderProblems/pull/1553)。

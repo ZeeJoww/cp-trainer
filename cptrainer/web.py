@@ -9,6 +9,7 @@ import mimetypes
 from pathlib import Path
 import re
 import secrets
+import socket
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 import time
@@ -146,11 +147,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def check_origin(self, bridge=False):
         port = self.server.server_port
-        hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"{self.connection.getsockname()[0]}:{port}"}
         if self.headers.get("Host") not in hosts:
             raise PermissionError("Host 不被允许")
         origin = self.headers.get("Origin")
-        if not bridge and origin is not None and origin not in {"http://" + host for host in hosts}:
+        if not bridge and origin is not None and origin != "http://" + self.headers["Host"]:
             raise PermissionError("仅接受此应用页面的请求")
 
     def do_GET(self):
@@ -384,6 +385,7 @@ def main():
     parser = argparse.ArgumentParser(description="cp-trainer 本地 Web 服务")
     parser.add_argument("--home", type=Path, default=_default_home())
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--host", default="0.0.0.0", help="默认允许局域网；127.0.0.1 仅本机")
     parser.add_argument("--open", action="store_true")
     args = parser.parse_args()
     paths = Paths(args.home.expanduser().resolve())
@@ -396,9 +398,16 @@ def main():
     db.initialize_profiles(cf_handle=config.cf_handle, atcoder_handle=config.atcoder_handle,
         cf_rating=config.cf_official_rating, atcoder_rating=config.atcoder_official_rating)
     db.close()
-    server = TrainerServer(("127.0.0.1", args.port), paths)
-    url = f"http://127.0.0.1:{server.server_port}/"
+    server = TrainerServer((args.host, args.port), paths)
+    url = f"http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{server.server_port}/"
     print(f"CP Trainer: {url}", flush=True)
+    if args.host == "0.0.0.0":
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            try:
+                probe.connect(("192.0.2.1", 9))  # Route lookup only; sends no packet.
+                print(f"局域网：http://{probe.getsockname()[0]}:{server.server_port}/", flush=True)
+            except OSError:
+                print("局域网：将本机地址中的 127.0.0.1 替换为此电脑的 IPv4 地址。", flush=True)
     if args.open:
         webbrowser.open(url)
     try:
